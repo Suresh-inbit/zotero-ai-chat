@@ -1,0 +1,10 @@
+{
+  "name": "zotero-ai-chat-tests",
+  "private": true,
+  "scripts": {
+    "test": "node unit.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "24.1.3"
+  }
+}

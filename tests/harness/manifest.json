@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "UI test harness",
+  "version": "1.0.0",
+  "description": "Drives the AI Chat plugin inside a throwaway Zotero profile, writes results, then quits.",
+  "applications": {
+    "zotero": {
+      "id": "ui-harness@test.local",
+      "update_url": "https://localhost/update.json",
+      "strict_min_version": "7.0",
+      "strict_max_version": "10.*"
+    }
+  }
+}

@@ -1,0 +1,308 @@
+/* AI Chat item pane section. Colors come from Zotero's theme variables so light and
+   dark mode both work; each has a fallback for safety. */
+
+.aichat-root {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+	/* The item pane is sized from its content's minimum width; without this, a long
+	   unbreakable line here (code, URLs) would widen the whole pane */
+	contain: inline-size;
+	font-size: inherit;
+	color: var(--fill-primary, inherit);
+}
+
+.aichat-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 4px;
+}
+
+.aichat-context {
+	font-size: 0.85em;
+	color: var(--fill-secondary, GrayText);
+	overflow-wrap: anywhere;
+}
+
+.aichat-button {
+	flex: 0 0 auto;
+	margin: 0;
+	padding: 2px 8px;
+	font: inherit;
+	font-size: 0.9em;
+	color: var(--fill-primary, ButtonText);
+	background: var(--material-button, ButtonFace);
+	border: 1px solid var(--material-border50, ThreeDShadow);
+	border-radius: 5px;
+	cursor: default;
+}
+
+.aichat-button:hover:not(:disabled) {
+	background: var(--fill-quinary, ButtonHighlight);
+}
+
+.aichat-button:disabled {
+	opacity: 0.5;
+}
+
+.aichat-button:focus-visible {
+	outline: 2px solid var(--color-accent, Highlight);
+	outline-offset: 1px;
+}
+
+.aichat-messages {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-height: 60vh;
+	min-height: 60px;
+	overflow-y: auto;
+	padding: 2px;
+}
+
+.aichat-empty-title {
+	color: var(--fill-secondary, GrayText);
+	margin-bottom: 6px;
+}
+
+.aichat-suggestions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.aichat-chip {
+	border-radius: 12px;
+	padding: 3px 10px;
+}
+
+.aichat-msg {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.aichat-user {
+	align-items: flex-end;
+}
+
+.aichat-user .aichat-bubble {
+	max-width: 85%;
+	white-space: pre-wrap;
+	background: var(--accent-blue10, rgba(64, 114, 229, 0.1));
+	border: 1px solid var(--accent-blue30, rgba(64, 114, 229, 0.3));
+}
+
+.aichat-bubble {
+	padding: 6px 10px;
+	border-radius: 8px;
+	overflow-wrap: anywhere;
+	user-select: text;
+	-moz-user-select: text;
+	cursor: text;
+}
+
+.aichat-assistant .aichat-bubble {
+	background: var(--material-background, Field);
+	border: 1px solid var(--material-border50, ThreeDShadow);
+}
+
+.aichat-status {
+	margin-top: 4px;
+	font-size: 0.9em;
+	color: var(--fill-secondary, GrayText);
+}
+
+.aichat-typing::after {
+	content: "";
+	display: inline-block;
+	width: 1em;
+	text-align: left;
+	animation: aichat-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes aichat-dots {
+	0% { content: ""; }
+	25% { content: "."; }
+	50% { content: ".."; }
+	75% { content: "..."; }
+}
+
+.aichat-error {
+	margin-top: 4px;
+	padding: 6px 10px;
+	border-radius: 8px;
+	color: var(--accent-red, #d70022);
+	background: var(--color-invalid-background, rgba(215, 0, 34, 0.08));
+	overflow-wrap: anywhere;
+	user-select: text;
+	-moz-user-select: text;
+}
+
+.aichat-inline {
+	margin-left: 4px;
+}
+
+.aichat-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-top: 4px;
+}
+
+.aichat-small {
+	font-size: 0.85em;
+	padding: 1px 6px;
+}
+
+.aichat-model {
+	margin-left: auto;
+	font-size: 0.8em;
+	color: var(--fill-tertiary, GrayText);
+}
+
+.aichat-input-row {
+	display: flex;
+	align-items: flex-end;
+	gap: 6px;
+}
+
+.aichat-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 3.2em;
+	max-height: 30vh;
+	resize: vertical;
+	box-sizing: border-box;
+	padding: 5px 7px;
+	font: inherit;
+	color: var(--fill-primary, FieldText);
+	background: var(--material-background, Field);
+	border: 1px solid var(--material-border50, ThreeDShadow);
+	border-radius: 6px;
+}
+
+.aichat-input:focus {
+	outline: 2px solid var(--color-accent, Highlight);
+	outline-offset: -1px;
+}
+
+.aichat-send {
+	padding: 4px 12px;
+	color: var(--accent-white, #fff);
+	background: var(--color-accent, #4072e5);
+	border-color: transparent;
+}
+
+.aichat-send:hover:not(:disabled) {
+	background: var(--color-accent, #4072e5);
+	filter: brightness(1.08);
+}
+
+.aichat-send.aichat-stop {
+	background: var(--accent-red, #d70022);
+}
+
+/* Rendered Markdown */
+
+.aichat-markdown > :first-child {
+	margin-top: 0;
+}
+
+.aichat-markdown > :last-child {
+	margin-bottom: 0;
+}
+
+.aichat-markdown p,
+.aichat-markdown ul,
+.aichat-markdown ol,
+.aichat-markdown pre,
+.aichat-markdown blockquote,
+.aichat-markdown .aichat-table-wrap {
+	margin: 0.5em 0;
+}
+
+.aichat-markdown h3,
+.aichat-markdown h4,
+.aichat-markdown h5,
+.aichat-markdown h6 {
+	margin: 0.8em 0 0.4em;
+	line-height: 1.25;
+}
+
+.aichat-markdown h3 { font-size: 1.15em; }
+.aichat-markdown h4 { font-size: 1.05em; }
+.aichat-markdown h5,
+.aichat-markdown h6 { font-size: 1em; }
+
+.aichat-markdown ul,
+.aichat-markdown ol {
+	padding-inline-start: 1.5em;
+}
+
+.aichat-markdown li + li {
+	margin-top: 0.2em;
+}
+
+.aichat-markdown code {
+	font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+	font-size: 0.9em;
+	padding: 0.1em 0.3em;
+	border-radius: 4px;
+	background: var(--fill-quinary, rgba(0, 0, 0, 0.06));
+}
+
+.aichat-markdown pre {
+	padding: 8px;
+	overflow-x: auto;
+	border-radius: 6px;
+	background: var(--fill-quinary, rgba(0, 0, 0, 0.06));
+}
+
+.aichat-markdown pre code {
+	padding: 0;
+	background: none;
+	white-space: pre;
+}
+
+.aichat-markdown blockquote {
+	padding-inline-start: 0.8em;
+	border-inline-start: 3px solid var(--fill-quarternary, rgba(0, 0, 0, 0.2));
+	color: var(--fill-secondary, inherit);
+}
+
+.aichat-markdown hr {
+	border: none;
+	border-top: 1px solid var(--material-border50, ThreeDShadow);
+	margin: 0.8em 0;
+}
+
+.aichat-table-wrap {
+	overflow-x: auto;
+}
+
+.aichat-markdown table {
+	border-collapse: collapse;
+	font-size: 0.95em;
+}
+
+.aichat-markdown th,
+.aichat-markdown td {
+	padding: 3px 6px;
+	border: 1px solid var(--material-border50, ThreeDShadow);
+	text-align: start;
+	vertical-align: top;
+}
+
+.aichat-markdown th {
+	background: var(--fill-quinary, rgba(0, 0, 0, 0.04));
+}
+
+.aichat-link {
+	color: var(--accent-blue, LinkText);
+	text-decoration: underline;
+	cursor: pointer;
+}

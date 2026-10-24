@@ -1,0 +1,102 @@
+<vbox id="zotero-ai-chat-prefs">
+	<groupbox>
+		<label><html:h2>Provider</html:h2></label>
+		<hbox align="center">
+			<label value="Service:" control="zotero-ai-chat-provider"/>
+			<menulist id="zotero-ai-chat-provider" preference="extensions.zotero-ai-chat.provider" native="true">
+				<menupopup>
+					<menuitem label="Claude (Anthropic API)" value="anthropic"/>
+					<menuitem label="OpenAI-compatible API" value="openai"/>
+				</menupopup>
+			</menulist>
+		</hbox>
+	</groupbox>
+
+	<groupbox id="zotero-ai-chat-anthropic">
+		<label><html:h2>Claude</html:h2></label>
+		<hbox align="center">
+			<label value="API key:" control="zotero-ai-chat-anthropic-key"/>
+			<html:input id="zotero-ai-chat-anthropic-key" type="password" style="flex: 1;"
+				placeholder="sk-ant-…" preference="extensions.zotero-ai-chat.anthropic.apiKey"/>
+		</hbox>
+		<hbox align="center">
+			<label value="Model:" control="zotero-ai-chat-anthropic-model"/>
+			<html:input id="zotero-ai-chat-anthropic-model" type="text" style="flex: 1;"
+				placeholder="claude-opus-5-5" preference="extensions.zotero-ai-chat.anthropic.model"/>
+		</hbox>
+		<description>
+			For example claude-opus-5-5 (default), claude-sonnet-5-5 (faster, cheaper) or claude-haiku-5-5 (fastest, cheapest).
+		</description>
+		<hbox align="center">
+			<label value="Effort:" control="zotero-ai-chat-anthropic-effort"/>
+			<menulist id="zotero-ai-chat-anthropic-effort" preference="extensions.zotero-ai-chat.anthropic.effort" native="true">
+				<menupopup>
+					<menuitem label="Low (fastest)" value="low"/>
+					<menuitem label="Medium" value="medium"/>
+					<menuitem label="High" value="high"/>
+					<menuitem label="Extra high" value="xhigh"/>
+					<menuitem label="Max (slowest)" value="max"/>
+				</menupopup>
+			</menulist>
+		</hbox>
+		<description>
+			How much the model thinks before answering. Higher is slower and costs more.
+		</description>
+		<hbox align="center">
+			<label value="Base URL:" control="zotero-ai-chat-anthropic-url"/>
+			<html:input id="zotero-ai-chat-anthropic-url" type="text" style="flex: 1;"
+				placeholder="https://api.anthropic.com" preference="extensions.zotero-ai-chat.anthropic.baseURL"/>
+		</hbox>
+	</groupbox>
+
+	<groupbox id="zotero-ai-chat-openai">
+		<label><html:h2>OpenAI-compatible API</html:h2></label>
+		<hbox align="center">
+			<label value="Base URL:" control="zotero-ai-chat-openai-url"/>
+			<html:input id="zotero-ai-chat-openai-url" type="text" style="flex: 1;"
+				placeholder="https://api.openai.com/v1" preference="extensions.zotero-ai-chat.openai.baseURL"/>
+		</hbox>
+		<description>
+			Examples: https://api.openai.com/v1, https://openrouter.ai/api/v1, https://router.requesty.ai/v1, http://localhost:11434/v1 (Ollama). A full …/chat/completions URL also works.
+		</description>
+		<hbox align="center">
+			<label value="API key:" control="zotero-ai-chat-openai-key"/>
+			<html:input id="zotero-ai-chat-openai-key" type="password" style="flex: 1;"
+				placeholder="Leave empty for local servers" preference="extensions.zotero-ai-chat.openai.apiKey"/>
+		</hbox>
+		<hbox align="center">
+			<label value="Model:" control="zotero-ai-chat-openai-model"/>
+			<html:input id="zotero-ai-chat-openai-model" type="text" style="flex: 1;"
+				placeholder="Model name exactly as your provider lists it" preference="extensions.zotero-ai-chat.openai.model"/>
+		</hbox>
+	</groupbox>
+
+	<groupbox>
+		<label><html:h2>Context</html:h2></label>
+		<hbox align="center">
+			<label value="Maximum characters of full text to send:" control="zotero-ai-chat-max-chars"/>
+			<html:input id="zotero-ai-chat-max-chars" type="number" min="0" step="10000" style="width: 10em;"
+				preference="extensions.zotero-ai-chat.maxContextChars"/>
+		</hbox>
+		<description>
+			About 4 characters per token. 200,000 characters (about 50,000 tokens) covers most papers. Longer documents are cut off at this limit, and the chat tells you when that happens.
+		</description>
+		<checkbox id="zotero-ai-chat-annotations" label="Include my highlights and comments"
+			preference="extensions.zotero-ai-chat.includeAnnotations" native="true"/>
+		<label value="Extra instructions for the model (optional):" control="zotero-ai-chat-custom"/>
+		<html:textarea id="zotero-ai-chat-custom" rows="3" style="resize: vertical;"
+			placeholder="For example: Answer in German. Explain terms for a first-year student."
+			preference="extensions.zotero-ai-chat.customInstructions"/>
+	</groupbox>
+
+	<groupbox>
+		<label><html:h2>Test</html:h2></label>
+		<hbox align="center">
+			<button id="zotero-ai-chat-test" label="Test connection"/>
+			<html:div id="zotero-ai-chat-test-result" style="flex: 1; overflow-wrap: anywhere; user-select: text;"/>
+		</hbox>
+		<description>
+			Sends one short message using the settings above. Your API key is stored in Zotero's preferences on this computer.
+		</description>
+	</groupbox>
+</vbox>
