@@ -462,6 +462,40 @@ async function run() {
 		check("max chars field filled", doc.getElementById("zotero-ai-chat-max-chars").value === "200000");
 		check("annotations checkbox filled", doc.getElementById("zotero-ai-chat-annotations").checked === true);
 
+		// Layout: one label column in every section, fields beside it, nothing sticking out
+		let paneRoot = doc.getElementById("zotero-ai-chat-prefs");
+		let visible = (e) => e.getBoundingClientRect().width > 0;
+		let labels = [...paneRoot.querySelectorAll(".form-grid > label")].filter(visible);
+		let rights = labels.map((l) => Math.round(l.getBoundingClientRect().right));
+		check("settings labels line up in one column", labels.length === 8 && Math.max(...rights) - Math.min(...rights) <= 1,
+			labels.map((l, i) => `${l.value}${rights[i]}`).join(" "));
+		let gridRight = Math.max(...[...paneRoot.querySelectorAll(".form-grid")].filter(visible).map((g) => g.getBoundingClientRect().right));
+		let outside = [...paneRoot.querySelectorAll("input, textarea, menulist, button, checkbox, description")].filter(visible)
+			.filter((e) => e.getBoundingClientRect().right > gridRight + 1);
+		check("settings fields stay inside the form", !outside.length, outside.map((e) => e.id || e.localName).join(","));
+		// (The Load models buttons sit beside their Model field, so they don't count)
+		let starts = [...paneRoot.querySelectorAll("input, textarea, menulist, button, checkbox, .aichat-hint")]
+			.filter((e) => visible(e) && !e.id.endsWith("-fetch"));
+		let lefts = starts.map((e) => Math.round(e.getBoundingClientRect().left));
+		check("every field starts at the same edge", starts.length >= 15 && Math.max(...lefts) - Math.min(...lefts) <= 1,
+			starts.map((e, i) => `${e.id || e.localName}:${lefts[i]}`).join(" "));
+		let fullWidth = ["anthropic-key", "anthropic-favorites", "anthropic-url", "anthropic-fetch", "custom"]
+			.map((id) => doc.getElementById("zotero-ai-chat-" + id).getBoundingClientRect().right);
+		check("full-width fields end at the same edge", Math.max(...fullWidth) - Math.min(...fullWidth) <= 1,
+			fullWidth.map(Math.round).join(","));
+		let fetchRect = doc.getElementById("zotero-ai-chat-anthropic-fetch").getBoundingClientRect();
+		let modelRect = doc.getElementById("zotero-ai-chat-anthropic-model").getBoundingClientRect();
+		check("Load models sits beside the Model field", fetchRect.left >= modelRect.right
+			&& Math.abs((fetchRect.top + fetchRect.bottom) / 2 - (modelRect.top + modelRect.bottom) / 2) < 4,
+		`button ${Math.round(fetchRect.left)},${Math.round(fetchRect.top)} field right ${Math.round(modelRect.right)} top ${Math.round(modelRect.top)}`);
+		let testRect = doc.getElementById("zotero-ai-chat-test").getBoundingClientRect();
+		let effortRect = doc.getElementById("zotero-ai-chat-anthropic-url").getBoundingClientRect();
+		check("Test connection comes right after the service's fields", testRect.top > effortRect.bottom
+			&& testRect.top < doc.getElementById("zotero-ai-chat-max-chars").getBoundingClientRect().top);
+		let tokens = doc.getElementById("zotero-ai-chat-max-chars-tokens");
+		check("full-text limit shows its size in tokens", tokens.value === "characters, about 50,000 tokens", tokens.value);
+		await screenshot(prefWin, "05a-settings-claude-top");
+
 		provider.value = "openai";
 		provider.dispatchEvent(new prefWin.Event("command"));
 		await sleep(100);
@@ -491,6 +525,10 @@ async function run() {
 		maxChars.dispatchEvent(new prefWin.Event("input"));
 		check("editing max chars saves a string pref", Zotero.Prefs.get("extensions.zotero-ai-chat.maxContextChars", true) === "150000");
 		check("plugin reads the new limit", AIChat.getMaxContextChars() === 150000);
+		check("token estimate follows the limit", tokens.value === "characters, about 37,500 tokens", tokens.value);
+		maxChars.value = "0";
+		maxChars.dispatchEvent(new prefWin.Event("input"));
+		check("a limit of 0 says only metadata is sent", tokens.value === "characters: no full text, only the metadata", tokens.value);
 		maxChars.value = "200000";
 		maxChars.dispatchEvent(new prefWin.Event("input"));
 
@@ -498,6 +536,12 @@ async function run() {
 		let result = doc.getElementById("zotero-ai-chat-test-result");
 		await waitFor(() => result.textContent.startsWith("Connected"), 20000, "test connection result").catch(() => {});
 		check("Test connection succeeds", result.textContent.startsWith("Connected") && result.textContent.includes("OK"), result.textContent);
+		await screenshot(prefWin, "05b-settings-tested");
+		provider.value = "openrouter";
+		provider.dispatchEvent(new prefWin.Event("command"));
+		check("switching service clears the old test result", result.textContent === "", result.textContent);
+		provider.value = "anthropic";
+		provider.dispatchEvent(new prefWin.Event("command"));
 		let fav = doc.getElementById("zotero-ai-chat-anthropic-favorites");
 		let originalFavorites = fav.value;
 		check("favorites box lists the defaults", fav.value.split("\n").includes("claude-haiku-5-5"), JSON.stringify(fav.value));
@@ -904,9 +948,10 @@ async function run() {
 		let checkbox = doc.getElementById("zotero-ai-chat-save-history");
 		await waitFor(() => checkbox.checked, 5000, "history checkbox").catch(() => {});
 		check("history checkbox reflects the pref", checkbox.checked === true);
-		check("OpenRouter and Requesty sections have their own headings",
-			doc.querySelector("#zotero-ai-chat-openrouter h2")?.textContent === "OpenRouter"
-			&& doc.querySelector("#zotero-ai-chat-requesty h2")?.textContent === "Requesty");
+		let services = [...doc.querySelectorAll("#zotero-ai-chat-provider menuitem")].map((m) => m.getAttribute("label"));
+		check("Service menu lists Claude, OpenRouter, Requesty, then other OpenAI-compatible APIs",
+			services.length === 4 && services[0].startsWith("Claude") && services[1] === "OpenRouter" && services[2] === "Requesty"
+			&& services[3].startsWith("Other OpenAI-compatible"), services.join(" | "));
 		let dir = PathUtils.join(Zotero.DataDirectory.dir, "ai-chat");
 		check("history folder exists before deleting", await IOUtils.exists(dir));
 		button.dispatchEvent(new prefWin.Event("command"));

@@ -6,28 +6,28 @@ Works with:
 
 - **Claude** (Anthropic API). Default model `claude-opus-5-5`.
 - **OpenRouter** and **Requesty**: pick them from the service menu. Their base URLs are filled in; paste your key.
-- **Any other OpenAI-compatible API**: OpenAI, a local Ollama or LM Studio server, and so on, using the "OpenAI-compatible API" option.
+- **Any other OpenAI-compatible API**: OpenAI, a local Ollama or LM Studio server, and so on, using the "Other OpenAI-compatible API" option.
 
 ## Install
 
 1. Build the plugin (or use the prebuilt file in `build/`):
    ```sh
-   ./build.sh          # creates build/zotero-ai-chat-1.3.0.xpi
+   ./build.sh          # creates build/zotero-ai-chat-1.3.1.xpi
    ```
 2. In Zotero: **Tools → Plugins**, click the gear icon, choose **Install Plugin From File…**, and pick the `.xpi`.
-3. Open **Edit → Settings → AI Chat** (on macOS, **Zotero → Settings**) and set up a provider:
+3. Open **Edit → Settings → AI Chat** (on macOS, **Zotero → Settings**) and choose a **Service**. Only that service's fields are shown:
    - **Claude**: paste an API key from <https://platform.claude.com>. Keep the default model or pick another one.
-   - **OpenAI-compatible**: set the base URL, API key and model name. Examples:
+   - **OpenRouter** or **Requesty**: paste your key and pick a model (**Load models** lists the ones your key can use). The base URL is already set.
+   - **Other OpenAI-compatible API**: set the base URL, API key and model name. Examples:
 
      | Service | Base URL | Model example |
      |---|---|---|
      | OpenAI | `https://api.openai.com/v1` | as listed in your account |
-     | OpenRouter | `https://openrouter.ai/api/v1` | `vendor/model` |
-     | Requesty | `https://router.requesty.ai/v1` | `vendor/model` |
      | Ollama (local) | `http://localhost:11434/v1` | `llama3.1`, leave the key empty |
+     | LM Studio (local) | `http://localhost:1234/v1` | the loaded model's name |
 
      A full `…/chat/completions` URL also works.
-4. Click **Test connection**.
+4. Click **Test connection** under the fields.
 
 ## Use
 
@@ -45,7 +45,7 @@ Works with:
 - Metadata: title, authors, date, publication, DOI, URL and abstract.
 - Full text of the open PDF (in the reader) or the item's best attachment (in the library). Zotero must be able to extract text, so scanned PDFs without OCR only give metadata.
 - Your highlights and comments on that attachment. You can turn this off in settings.
-- Text beyond **Maximum characters of full text** (default 200,000, about 50,000 tokens) is cut off. The chat tells you when that happens.
+- Text beyond the **Full text** limit (default 200,000 characters, about 50,000 tokens) is cut off. The chat tells you when that happens.
 
 With Claude, the document is sent with prompt caching, so follow-up questions about the same paper are cheaper and faster.
 
@@ -55,16 +55,16 @@ All settings are under **Settings → AI Chat**.
 
 | Setting | Default | Notes |
 |---|---|---|
-| Service | Claude | Claude or OpenAI-compatible |
+| Service | Claude | Claude, OpenRouter, Requesty, or another OpenAI-compatible API |
 | Favorite models | Claude: opus, sonnet and haiku 5.5 | One model per line (commas also work). They fill the chat's model menu. Empty by default for OpenAI-compatible services |
 | Claude model | `claude-opus-5-5` | `claude-sonnet-5-5` is faster and cheaper; `claude-haiku-5-5` is the fastest and cheapest |
 | Effort | Medium | How much Claude thinks before answering |
-| Maximum characters | 200,000 | How much full text to send |
+| Full text | 200,000 | Most characters of full text to send (0 sends only the metadata). The settings show it in tokens |
 | Include highlights and comments | on | |
-| Extra instructions | empty | Added to the system prompt, e.g. "Answer in German" |
+| Instructions | empty | Added to the system prompt, e.g. "Answer in German" |
 | Save chats | on | Keeps chat history; **Delete all chat history** clears it |
 
-To fill in the list from the server, click **Load models from server** in the Settings. Pick a model from the list to use it; it is also added to your favorites.
+To fill in the list from the server, click **Load models** next to the Model field. Pick a model from the list to use it; it is also added to your favorites.
 
 Chats are saved as one JSON file per item in the `ai-chat` folder of your Zotero data directory (the folder with `zotero.sqlite`), including any images you sent. They stay on your computer and are not synced. Up to 50 chats are kept per item. Emptying an item from the trash deletes its chats.
 
@@ -95,7 +95,7 @@ Run the tests:
 ```sh
 cd tests && npm install && npm test      # unit tests
 tests/run_integration.sh                 # end-to-end, headless; never touches your real library
-XPI=build/zotero-ai-chat-1.3.0.xpi tests/run_integration.sh   # test the packaged file
+XPI=build/zotero-ai-chat-1.3.1.xpi tests/run_integration.sh   # test the packaged file
 DARK=1 tests/run_integration.sh          # same, in dark mode (check the screenshots)
 tests/run_reinstall_test.sh              # install over v1.0.0 without restarting; new styles and maths fonts must apply
 HEADLESS=0 REAL_CLIPBOARD=1 tests/run_integration.sh   # Wayland: also paste a real clipboard image (briefly replaces your clipboard)
