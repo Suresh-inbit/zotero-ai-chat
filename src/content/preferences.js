@@ -12,10 +12,19 @@ var ZoteroAIChatPrefs = {
 		this.testButton = root.querySelector("#zotero-ai-chat-test");
 		this.testResult = root.querySelector("#zotero-ai-chat-test-result");
 
-		this.provider.addEventListener("command", () => this.updateVisibility());
+		this.provider.addEventListener("command", () => {
+			this.updateVisibility();
+			// A result for the previous service would be misleading
+			this.showResult("", null);
+		});
 		// Fired when the menulist value is filled in from the stored preference
 		this.provider.addEventListener("syncfrompreference", () => this.updateVisibility());
 		this.testButton.addEventListener("command", () => this.test());
+		this.maxChars = root.querySelector("#zotero-ai-chat-max-chars");
+		this.tokens = root.querySelector("#zotero-ai-chat-max-chars-tokens");
+		this.maxChars.addEventListener("input", () => this.updateTokens());
+		this.maxChars.addEventListener("syncfrompreference", () => this.updateTokens());
+		this.updateTokens();
 		this.clearButton = root.querySelector("#zotero-ai-chat-clear-history");
 		this.clearResult = root.querySelector("#zotero-ai-chat-clear-history-result");
 		this.clearButton.addEventListener("command", () => this.clearHistory());
@@ -38,6 +47,14 @@ var ZoteroAIChatPrefs = {
 		for (let provider of this.PROVIDERS) {
 			this.root.querySelector(`#zotero-ai-chat-${provider}`).hidden = this.provider.value !== provider;
 		}
+	},
+
+	// "characters, about 50,000 tokens" (about 4 characters per token)
+	updateTokens() {
+		let chars = parseInt(this.maxChars.value, 10);
+		this.tokens.value = !Number.isFinite(chars) || chars < 0 ? "characters"
+			: chars === 0 ? "characters: no full text, only the metadata"
+				: `characters, about ${Math.round(chars / 4).toLocaleString("en-US")} tokens`;
 	},
 
 	async fetchModels(provider) {

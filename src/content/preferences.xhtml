@@ -1,193 +1,312 @@
 <vbox id="zotero-ai-chat-prefs">
+	<!-- Inline rather than a linked stylesheet: Gecko caches linked sheets by URL, so after a
+	     new build is installed over a running one a link would keep the old rules -->
+	<html:style>
+		/* Labels in one column and fields in another, the same width in every section
+		   (Zotero's .form-grid, with a fixed label column so the sections line up) */
+		#zotero-ai-chat-prefs .form-grid {
+			grid-template-columns: 8.5em minmax(0, 1fr);
+			column-gap: 0.5em;
+			row-gap: 0.6em;
+			align-items: baseline;
+			max-width: 640px;
+		}
+		/* Zotero gives inputs and menus side margins but not text areas or hints; without
+		   them every field in a section starts and ends at the same edge */
+		#zotero-ai-chat-prefs .form-grid > label,
+		#zotero-ai-chat-prefs input,
+		#zotero-ai-chat-prefs textarea,
+		#zotero-ai-chat-prefs select,
+		#zotero-ai-chat-prefs menulist {
+			margin-inline: 0;
+		}
+		#zotero-ai-chat-prefs .aichat-provider {
+			margin-top: 0.6em;
+		}
+		#zotero-ai-chat-prefs .aichat-hint {
+			margin: 0.25em 0 0;
+			font-size: 0.92em;
+			color: var(--fill-secondary, GrayText);
+		}
+		/* URLs and model names in hints wrap as a whole, never at a slash */
+		#zotero-ai-chat-prefs .aichat-hint code {
+			font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+			font-size: 0.95em;
+			white-space: nowrap;
+		}
+		#zotero-ai-chat-prefs .aichat-inline {
+			display: flex;
+			align-items: center;
+			gap: 0.5em;
+			min-width: 0;
+		}
+		#zotero-ai-chat-prefs .aichat-inline > input:not([type="number"]) {
+			flex: 1;
+			min-width: 0;
+		}
+		#zotero-ai-chat-prefs .aichat-inline > button {
+			margin: 0;
+			flex-shrink: 0;
+		}
+		#zotero-ai-chat-prefs select {
+			margin-top: 0.35em;
+			min-width: 0;
+		}
+		#zotero-ai-chat-prefs textarea {
+			resize: vertical;
+			min-height: 3.6em;
+		}
+		#zotero-ai-chat-prefs input[type="number"] {
+			width: 8em;
+		}
+		#zotero-ai-chat-prefs checkbox[native] {
+			margin: 0;
+		}
+		#zotero-ai-chat-prefs .aichat-status {
+			margin-top: 0.3em;
+			overflow-wrap: anywhere;
+			user-select: text;
+		}
+		#zotero-ai-chat-prefs .aichat-status:empty {
+			display: none;
+		}
+		#zotero-ai-chat-prefs .aichat-inline > .aichat-status {
+			margin-top: 0;
+			flex: 1;
+		}
+	</html:style>
+
 	<groupbox>
-		<label><html:h2>Provider</html:h2></label>
-		<hbox align="center">
+		<label><html:h2>Connection</html:h2></label>
+		<html:div class="form-grid">
 			<label value="Service:" control="zotero-ai-chat-provider"/>
-			<menulist id="zotero-ai-chat-provider" preference="extensions.zotero-ai-chat.provider" native="true">
-				<menupopup>
-					<menuitem label="Claude (Anthropic API)" value="anthropic"/>
-					<menuitem label="OpenAI-compatible API (custom server, Ollama, LM Studio)" value="openai"/>
-					<menuitem label="OpenRouter" value="openrouter"/>
-					<menuitem label="Requesty" value="requesty"/>
-				</menupopup>
-			</menulist>
-		</hbox>
-	</groupbox>
+			<hbox>
+				<menulist id="zotero-ai-chat-provider" preference="extensions.zotero-ai-chat.provider" native="true">
+					<menupopup>
+						<menuitem label="Claude (Anthropic API)" value="anthropic"/>
+						<menuitem label="OpenRouter" value="openrouter"/>
+						<menuitem label="Requesty" value="requesty"/>
+						<menuitem label="Other OpenAI-compatible API" value="openai"/>
+					</menupopup>
+				</menulist>
+			</hbox>
+		</html:div>
 
-	<groupbox id="zotero-ai-chat-anthropic">
-		<label><html:h2>Claude</html:h2></label>
-		<hbox align="center">
-			<label value="API key:" control="zotero-ai-chat-anthropic-key"/>
-			<html:input id="zotero-ai-chat-anthropic-key" type="password" style="flex: 1;"
-				placeholder="sk-ant-…" preference="extensions.zotero-ai-chat.anthropic.apiKey"/>
-		</hbox>
-		<hbox align="center">
-			<label value="Model:" control="zotero-ai-chat-anthropic-model"/>
-			<html:input id="zotero-ai-chat-anthropic-model" type="text" style="flex: 1;"
-				placeholder="claude-opus-5-5" preference="extensions.zotero-ai-chat.anthropic.model"/>
-		</hbox>
-		<description>
-			For example claude-opus-5-5 (default), claude-sonnet-5-5 (faster, cheaper) or claude-haiku-5-5 (fastest, cheapest).
-		</description>
-		<hbox align="center">
-			<button id="zotero-ai-chat-anthropic-fetch" label="Load models from server"/>
-			<html:select id="zotero-ai-chat-anthropic-available" hidden="true" style="flex: 1; min-width: 0;"/>
-		</hbox>
-		<html:div id="zotero-ai-chat-anthropic-fetch-status"/>
-		<label value="Favorite models (one per line). They appear in the model menu in the chat:" control="zotero-ai-chat-anthropic-favorites"/>
-		<html:textarea id="zotero-ai-chat-anthropic-favorites" rows="3" style="resize: vertical;"
-			preference="extensions.zotero-ai-chat.favoriteModels.anthropic"/>
-		<hbox align="center">
-			<label value="Effort:" control="zotero-ai-chat-anthropic-effort"/>
-			<menulist id="zotero-ai-chat-anthropic-effort" preference="extensions.zotero-ai-chat.anthropic.effort" native="true">
-				<menupopup>
-					<menuitem label="Low (fastest)" value="low"/>
-					<menuitem label="Medium" value="medium"/>
-					<menuitem label="High" value="high"/>
-					<menuitem label="Extra high" value="xhigh"/>
-					<menuitem label="Max (slowest)" value="max"/>
-				</menupopup>
-			</menulist>
-		</hbox>
-		<description>
-			How much the model thinks before answering. Higher is slower and costs more.
-		</description>
-		<hbox align="center">
-			<label value="Base URL:" control="zotero-ai-chat-anthropic-url"/>
-			<html:input id="zotero-ai-chat-anthropic-url" type="text" style="flex: 1;"
-				placeholder="https://api.anthropic.com" preference="extensions.zotero-ai-chat.anthropic.baseURL"/>
-		</hbox>
-	</groupbox>
+		<!-- Only the chosen service's fields are shown -->
+		<vbox id="zotero-ai-chat-anthropic" class="aichat-provider">
+			<html:div class="form-grid">
+				<label value="API key:" control="zotero-ai-chat-anthropic-key"/>
+				<vbox>
+					<html:input id="zotero-ai-chat-anthropic-key" type="password"
+						placeholder="sk-ant-…" preference="extensions.zotero-ai-chat.anthropic.apiKey"/>
+					<description class="aichat-hint">Create one at <html:code>platform.claude.com</html:code>.</description>
+				</vbox>
 
-	<groupbox id="zotero-ai-chat-openai">
-		<label><html:h2>OpenAI-compatible API</html:h2></label>
-		<hbox align="center">
-			<label value="Base URL:" control="zotero-ai-chat-openai-url"/>
-			<html:input id="zotero-ai-chat-openai-url" type="text" style="flex: 1;"
-				placeholder="https://api.openai.com/v1" preference="extensions.zotero-ai-chat.openai.baseURL"/>
-		</hbox>
-		<description>
-			Examples: https://api.openai.com/v1, https://openrouter.ai/api/v1, https://router.requesty.ai/v1, http://localhost:11434/v1 (Ollama). A full …/chat/completions URL also works.
-		</description>
-		<hbox align="center">
-			<label value="API key:" control="zotero-ai-chat-openai-key"/>
-			<html:input id="zotero-ai-chat-openai-key" type="password" style="flex: 1;"
-				placeholder="Leave empty for local servers" preference="extensions.zotero-ai-chat.openai.apiKey"/>
-		</hbox>
-		<hbox align="center">
-			<label value="Model:" control="zotero-ai-chat-openai-model"/>
-			<html:input id="zotero-ai-chat-openai-model" type="text" style="flex: 1;"
-				placeholder="Model name exactly as your provider lists it" preference="extensions.zotero-ai-chat.openai.model"/>
-		</hbox>
-		<hbox align="center">
-			<button id="zotero-ai-chat-openai-fetch" label="Load models from server"/>
-			<html:select id="zotero-ai-chat-openai-available" hidden="true" style="flex: 1; min-width: 0;"/>
-		</hbox>
-		<html:div id="zotero-ai-chat-openai-fetch-status"/>
-		<label value="Favorite models (one per line). They appear in the model menu in the chat:" control="zotero-ai-chat-openai-favorites"/>
-		<html:textarea id="zotero-ai-chat-openai-favorites" rows="3" style="resize: vertical;"
-			preference="extensions.zotero-ai-chat.favoriteModels.openai"/>
-	</groupbox>
+				<label value="Model:" control="zotero-ai-chat-anthropic-model"/>
+				<vbox>
+					<html:div class="aichat-inline">
+						<html:input id="zotero-ai-chat-anthropic-model" type="text"
+							placeholder="claude-opus-5-5" preference="extensions.zotero-ai-chat.anthropic.model"/>
+						<button id="zotero-ai-chat-anthropic-fetch" label="Load models"/>
+					</html:div>
+					<html:select id="zotero-ai-chat-anthropic-available" hidden="true"/>
+					<html:div id="zotero-ai-chat-anthropic-fetch-status" class="aichat-status"/>
+					<description class="aichat-hint">Opus is the most capable. Sonnet is faster and cheaper, and Haiku is the fastest.</description>
+				</vbox>
 
-	<groupbox id="zotero-ai-chat-openrouter">
-		<label><html:h2>OpenRouter</html:h2></label>
-		<hbox align="center">
-			<label value="Base URL:" control="zotero-ai-chat-openrouter-url"/>
-			<html:input id="zotero-ai-chat-openrouter-url" type="text" style="flex: 1;"
-				placeholder="https://openrouter.ai/api/v1" preference="extensions.zotero-ai-chat.openrouter.baseURL"/>
-		</hbox>
-		<description>
-			Base URL https://openrouter.ai/api/v1 is set by default. Models use the vendor/model form. Get a key at openrouter.ai/keys.
-		</description>
-		<hbox align="center">
-			<label value="API key:" control="zotero-ai-chat-openrouter-key"/>
-			<html:input id="zotero-ai-chat-openrouter-key" type="password" style="flex: 1;"
-				placeholder="Paste your OpenRouter key" preference="extensions.zotero-ai-chat.openrouter.apiKey"/>
-		</hbox>
-		<hbox align="center">
-			<label value="Model:" control="zotero-ai-chat-openrouter-model"/>
-			<html:input id="zotero-ai-chat-openrouter-model" type="text" style="flex: 1;"
-				placeholder="vendor/model, e.g. minimax/minimax-m3.1-flash" preference="extensions.zotero-ai-chat.openrouter.model"/>
-		</hbox>
-		<hbox align="center">
-			<button id="zotero-ai-chat-openrouter-fetch" label="Load models from server"/>
-			<html:select id="zotero-ai-chat-openrouter-available" hidden="true" style="flex: 1; min-width: 0;"/>
-		</hbox>
-		<html:div id="zotero-ai-chat-openrouter-fetch-status"/>
-		<label value="Favorite models (one per line). They appear in the model menu in the chat:" control="zotero-ai-chat-openrouter-favorites"/>
-		<html:textarea id="zotero-ai-chat-openrouter-favorites" rows="3" style="resize: vertical;"
-			preference="extensions.zotero-ai-chat.favoriteModels.openrouter"/>
-	</groupbox>
+				<label value="Favorites:" control="zotero-ai-chat-anthropic-favorites"/>
+				<vbox>
+					<html:textarea id="zotero-ai-chat-anthropic-favorites" rows="3"
+						preference="extensions.zotero-ai-chat.favoriteModels.anthropic"/>
+					<description class="aichat-hint">One model per line. They fill the model menu in the chat.</description>
+				</vbox>
 
-	<groupbox id="zotero-ai-chat-requesty">
-		<label><html:h2>Requesty</html:h2></label>
-		<hbox align="center">
-			<label value="Base URL:" control="zotero-ai-chat-requesty-url"/>
-			<html:input id="zotero-ai-chat-requesty-url" type="text" style="flex: 1;"
-				placeholder="https://router.requesty.ai/v1" preference="extensions.zotero-ai-chat.requesty.baseURL"/>
-		</hbox>
-		<description>
-			Base URL https://router.requesty.ai/v1 is set by default. Use “Load models from server” to see the models your key can use.
-		</description>
-		<hbox align="center">
-			<label value="API key:" control="zotero-ai-chat-requesty-key"/>
-			<html:input id="zotero-ai-chat-requesty-key" type="password" style="flex: 1;"
-				placeholder="Paste your Requesty key" preference="extensions.zotero-ai-chat.requesty.apiKey"/>
-		</hbox>
-		<hbox align="center">
-			<label value="Model:" control="zotero-ai-chat-requesty-model"/>
-			<html:input id="zotero-ai-chat-requesty-model" type="text" style="flex: 1;"
-				placeholder="model name, e.g. alibaba/qwen3.8-max" preference="extensions.zotero-ai-chat.requesty.model"/>
-		</hbox>
-		<hbox align="center">
-			<button id="zotero-ai-chat-requesty-fetch" label="Load models from server"/>
-			<html:select id="zotero-ai-chat-requesty-available" hidden="true" style="flex: 1; min-width: 0;"/>
-		</hbox>
-		<html:div id="zotero-ai-chat-requesty-fetch-status"/>
-		<label value="Favorite models (one per line). They appear in the model menu in the chat:" control="zotero-ai-chat-requesty-favorites"/>
-		<html:textarea id="zotero-ai-chat-requesty-favorites" rows="3" style="resize: vertical;"
-			preference="extensions.zotero-ai-chat.favoriteModels.requesty"/>
+				<label value="Effort:" control="zotero-ai-chat-anthropic-effort"/>
+				<vbox>
+					<hbox>
+						<menulist id="zotero-ai-chat-anthropic-effort" preference="extensions.zotero-ai-chat.anthropic.effort" native="true">
+							<menupopup>
+								<menuitem label="Low (fastest)" value="low"/>
+								<menuitem label="Medium" value="medium"/>
+								<menuitem label="High" value="high"/>
+								<menuitem label="Extra high" value="xhigh"/>
+								<menuitem label="Max (slowest)" value="max"/>
+							</menupopup>
+						</menulist>
+					</hbox>
+					<description class="aichat-hint">How much Claude thinks before answering. Higher is slower and costs more.</description>
+				</vbox>
+
+				<label value="Base URL:" control="zotero-ai-chat-anthropic-url"/>
+				<vbox>
+					<html:input id="zotero-ai-chat-anthropic-url" type="text"
+						placeholder="https://api.anthropic.com" preference="extensions.zotero-ai-chat.anthropic.baseURL"/>
+					<description class="aichat-hint">Change this only to use a proxy.</description>
+				</vbox>
+			</html:div>
+		</vbox>
+
+		<vbox id="zotero-ai-chat-openrouter" class="aichat-provider">
+			<html:div class="form-grid">
+				<label value="API key:" control="zotero-ai-chat-openrouter-key"/>
+				<vbox>
+					<html:input id="zotero-ai-chat-openrouter-key" type="password"
+						placeholder="Paste your OpenRouter key" preference="extensions.zotero-ai-chat.openrouter.apiKey"/>
+					<description class="aichat-hint">Create one at <html:code>openrouter.ai/keys</html:code>.</description>
+				</vbox>
+
+				<label value="Model:" control="zotero-ai-chat-openrouter-model"/>
+				<vbox>
+					<html:div class="aichat-inline">
+						<html:input id="zotero-ai-chat-openrouter-model" type="text"
+							placeholder="vendor/model, e.g. minimax/minimax-m3.1-flash" preference="extensions.zotero-ai-chat.openrouter.model"/>
+						<button id="zotero-ai-chat-openrouter-fetch" label="Load models"/>
+					</html:div>
+					<html:select id="zotero-ai-chat-openrouter-available" hidden="true"/>
+					<html:div id="zotero-ai-chat-openrouter-fetch-status" class="aichat-status"/>
+				</vbox>
+
+				<label value="Favorites:" control="zotero-ai-chat-openrouter-favorites"/>
+				<vbox>
+					<html:textarea id="zotero-ai-chat-openrouter-favorites" rows="3"
+						preference="extensions.zotero-ai-chat.favoriteModels.openrouter"/>
+					<description class="aichat-hint">One model per line. They fill the model menu in the chat.</description>
+				</vbox>
+
+				<label value="Base URL:" control="zotero-ai-chat-openrouter-url"/>
+				<vbox>
+					<html:input id="zotero-ai-chat-openrouter-url" type="text"
+						placeholder="https://openrouter.ai/api/v1" preference="extensions.zotero-ai-chat.openrouter.baseURL"/>
+					<description class="aichat-hint">Already set for OpenRouter. Change this only to use a proxy.</description>
+				</vbox>
+			</html:div>
+		</vbox>
+
+		<vbox id="zotero-ai-chat-requesty" class="aichat-provider">
+			<html:div class="form-grid">
+				<label value="API key:" control="zotero-ai-chat-requesty-key"/>
+				<vbox>
+					<html:input id="zotero-ai-chat-requesty-key" type="password"
+						placeholder="Paste your Requesty key" preference="extensions.zotero-ai-chat.requesty.apiKey"/>
+					<description class="aichat-hint">Create one in your Requesty dashboard.</description>
+				</vbox>
+
+				<label value="Model:" control="zotero-ai-chat-requesty-model"/>
+				<vbox>
+					<html:div class="aichat-inline">
+						<html:input id="zotero-ai-chat-requesty-model" type="text"
+							placeholder="vendor/model, e.g. alibaba/qwen3.8-max" preference="extensions.zotero-ai-chat.requesty.model"/>
+						<button id="zotero-ai-chat-requesty-fetch" label="Load models"/>
+					</html:div>
+					<html:select id="zotero-ai-chat-requesty-available" hidden="true"/>
+					<html:div id="zotero-ai-chat-requesty-fetch-status" class="aichat-status"/>
+				</vbox>
+
+				<label value="Favorites:" control="zotero-ai-chat-requesty-favorites"/>
+				<vbox>
+					<html:textarea id="zotero-ai-chat-requesty-favorites" rows="3"
+						preference="extensions.zotero-ai-chat.favoriteModels.requesty"/>
+					<description class="aichat-hint">One model per line. They fill the model menu in the chat.</description>
+				</vbox>
+
+				<label value="Base URL:" control="zotero-ai-chat-requesty-url"/>
+				<vbox>
+					<html:input id="zotero-ai-chat-requesty-url" type="text"
+						placeholder="https://router.requesty.ai/v1" preference="extensions.zotero-ai-chat.requesty.baseURL"/>
+					<description class="aichat-hint">Already set for Requesty. Change this only to use a proxy.</description>
+				</vbox>
+			</html:div>
+		</vbox>
+
+		<vbox id="zotero-ai-chat-openai" class="aichat-provider">
+			<html:div class="form-grid">
+				<label value="Base URL:" control="zotero-ai-chat-openai-url"/>
+				<vbox>
+					<html:input id="zotero-ai-chat-openai-url" type="text"
+						placeholder="https://api.openai.com/v1" preference="extensions.zotero-ai-chat.openai.baseURL"/>
+					<description class="aichat-hint">Any server with an OpenAI-style API, for example <html:code>https://api.openai.com/v1</html:code> or <html:code>http://localhost:11434/v1</html:code> (Ollama). OpenRouter and Requesty have their own entries under Service.</description>
+				</vbox>
+
+				<label value="API key:" control="zotero-ai-chat-openai-key"/>
+				<vbox>
+					<html:input id="zotero-ai-chat-openai-key" type="password"
+						placeholder="Leave empty for local servers" preference="extensions.zotero-ai-chat.openai.apiKey"/>
+				</vbox>
+
+				<label value="Model:" control="zotero-ai-chat-openai-model"/>
+				<vbox>
+					<html:div class="aichat-inline">
+						<html:input id="zotero-ai-chat-openai-model" type="text"
+							placeholder="Model name exactly as the server lists it" preference="extensions.zotero-ai-chat.openai.model"/>
+						<button id="zotero-ai-chat-openai-fetch" label="Load models"/>
+					</html:div>
+					<html:select id="zotero-ai-chat-openai-available" hidden="true"/>
+					<html:div id="zotero-ai-chat-openai-fetch-status" class="aichat-status"/>
+				</vbox>
+
+				<label value="Favorites:" control="zotero-ai-chat-openai-favorites"/>
+				<vbox>
+					<html:textarea id="zotero-ai-chat-openai-favorites" rows="3"
+						preference="extensions.zotero-ai-chat.favoriteModels.openai"/>
+					<description class="aichat-hint">One model per line. They fill the model menu in the chat.</description>
+				</vbox>
+			</html:div>
+		</vbox>
+
+		<html:div class="form-grid aichat-provider">
+			<box/>
+			<vbox>
+				<html:div class="aichat-inline">
+					<button id="zotero-ai-chat-test" label="Test connection"/>
+					<html:div id="zotero-ai-chat-test-result" class="aichat-status"/>
+				</html:div>
+				<description class="aichat-hint">Sends one short message with these settings. Keys are kept in Zotero's settings on this computer and sent only to the service above.</description>
+			</vbox>
+		</html:div>
 	</groupbox>
 
 	<groupbox>
-		<label><html:h2>Context</html:h2></label>
-		<hbox align="center">
-			<label value="Maximum characters of full text to send:" control="zotero-ai-chat-max-chars"/>
-			<html:input id="zotero-ai-chat-max-chars" type="number" min="0" step="10000" style="width: 10em;"
-				preference="extensions.zotero-ai-chat.maxContextChars"/>
-		</hbox>
-		<description>
-			About 4 characters per token. 200,000 characters (about 50,000 tokens) covers most papers. Longer documents are cut off at this limit, and the chat tells you when that happens.
-		</description>
-		<checkbox id="zotero-ai-chat-annotations" label="Include my highlights and comments"
-			preference="extensions.zotero-ai-chat.includeAnnotations" native="true"/>
-		<label value="Extra instructions for the model (optional):" control="zotero-ai-chat-custom"/>
-		<html:textarea id="zotero-ai-chat-custom" rows="3" style="resize: vertical;"
-			placeholder="For example: Answer in German. Explain terms for a first-year student."
-			preference="extensions.zotero-ai-chat.customInstructions"/>
+		<label><html:h2>What the model reads</html:h2></label>
+		<html:div class="form-grid">
+			<label value="Full text:" control="zotero-ai-chat-max-chars"/>
+			<vbox>
+				<html:div class="aichat-inline">
+					<html:input id="zotero-ai-chat-max-chars" type="number" min="0" step="10000"
+						preference="extensions.zotero-ai-chat.maxContextChars"/>
+					<label id="zotero-ai-chat-max-chars-tokens" value="characters at most"/>
+				</html:div>
+				<description class="aichat-hint">Enough for most papers. Longer documents are cut off at this limit, and the chat says so.</description>
+			</vbox>
+
+			<box/>
+			<checkbox id="zotero-ai-chat-annotations" label="Include my highlights and comments"
+				preference="extensions.zotero-ai-chat.includeAnnotations" native="true"/>
+
+			<label value="Instructions:" control="zotero-ai-chat-custom"/>
+			<vbox>
+				<html:textarea id="zotero-ai-chat-custom" rows="3"
+					placeholder="For example: Answer in German. Explain terms for a first-year student."
+					preference="extensions.zotero-ai-chat.customInstructions"/>
+				<description class="aichat-hint">Optional. Added to every chat, along with the item's metadata and text.</description>
+			</vbox>
+		</html:div>
 	</groupbox>
 
 	<groupbox>
 		<label><html:h2>Chat history</html:h2></label>
-		<checkbox id="zotero-ai-chat-save-history" label="Save chats so I can reopen them later"
-			preference="extensions.zotero-ai-chat.saveHistory" native="true"/>
-		<description>
-			Each item's chats are listed under the clock button at the top of the chat. They are stored on this computer in the ai-chat folder of your Zotero data directory and are not synced. Deleting an item deletes its chats.
-		</description>
-		<hbox align="center">
-			<button id="zotero-ai-chat-clear-history" label="Delete all chat history"/>
-			<html:div id="zotero-ai-chat-clear-history-result" style="flex: 1; overflow-wrap: anywhere;"/>
-		</hbox>
-	</groupbox>
+		<html:div class="form-grid">
+			<box/>
+			<vbox>
+				<checkbox id="zotero-ai-chat-save-history" label="Save chats so I can reopen them later"
+					preference="extensions.zotero-ai-chat.saveHistory" native="true"/>
+				<description class="aichat-hint">The chat title at the top of the chat lists an item's earlier chats. They are stored on this computer, in the <html:code>ai-chat</html:code> folder of your Zotero data directory, and are not synced. Deleting an item deletes its chats.</description>
+			</vbox>
 
-	<groupbox>
-		<label><html:h2>Test</html:h2></label>
-		<hbox align="center">
-			<button id="zotero-ai-chat-test" label="Test connection"/>
-			<html:div id="zotero-ai-chat-test-result" style="flex: 1; overflow-wrap: anywhere; user-select: text;"/>
-		</hbox>
-		<description>
-			Sends one short message using the settings above. Your API key is stored in Zotero's preferences on this computer.
-		</description>
+			<box/>
+			<html:div class="aichat-inline">
+				<button id="zotero-ai-chat-clear-history" label="Delete all chat history"/>
+				<html:div id="zotero-ai-chat-clear-history-result" class="aichat-status"/>
+			</html:div>
+		</html:div>
 	</groupbox>
 </vbox>
