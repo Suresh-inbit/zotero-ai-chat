@@ -1,7 +1,19 @@
 {
   "addons": {
     "zotero-ai-chat@suresh-inbit": {
-      "updates": []
+      "updates": [
+        {
+          "version": "1.3.0",
+          "update_link": "https://github.com/Suresh-inbit/zotero-ai-chat/releases/download/v1.3.0/zotero-ai-chat-1.3.0.xpi",
+          "update_hash": "sha256:1846cf123cd849cfb7ce401909f2e71656d39ca3eeccc85b4ef2e22371a06188",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "10.0",
+              "strict_max_version": "10.*"
+            }
+          }
+        }
+      ]
     }
   }
 }
