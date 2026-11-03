@@ -83,13 +83,78 @@ function checkLayout(win, details, root, label) {
 	let pane = details.getBoundingClientRect();
 	let chat = root.getBoundingClientRect();
 	let widest = 0;
-	for (let el of root.querySelectorAll(".aichat-toolbar, .aichat-messages, .aichat-input-row, .aichat-context")) {
+	for (let el of root.querySelectorAll(".aichat-header, .aichat-messages, .aichat-composer, .aichat-context")) {
 		widest = Math.max(widest, el.getBoundingClientRect().right);
 	}
 	check(`layout fits (${label})`, chat.width > 150 && chat.right <= pane.right + 1 && widest <= pane.right + 1,
 		`pane ${Math.round(pane.left)}-${Math.round(pane.right)}, chat ${Math.round(chat.left)}-${Math.round(chat.right)}, widest child right ${Math.round(widest)}`);
-	let buttons = [...root.querySelectorAll(".aichat-toolbar button")];
-	check(`toolbar buttons visible (${label})`, buttons.length === 3 && buttons.every((b) => b.getBoundingClientRect().right <= pane.right + 1));
+	let buttons = [...root.querySelectorAll(".aichat-header button, .aichat-composer-bar > *")];
+	check(`header and composer controls visible (${label})`, buttons.length === 8
+		&& buttons.every((b) => b.getBoundingClientRect().right <= pane.right + 1 && b.getBoundingClientRect().width > 0),
+		buttons.map((b) => `${b.className.split(" ").pop()}:${Math.round(b.getBoundingClientRect().right)}`).join(" "));
+}
+
+async function makePNGFile(win, width, height, color, name) {
+	let canvas = win.document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
+	canvas.width = width;
+	canvas.height = height;
+	let ctx = canvas.getContext("2d");
+	let gradient = ctx.createLinearGradient(0, 0, width, height);
+	gradient.addColorStop(0, color);
+	gradient.addColorStop(1, "#000000");
+	ctx.fillStyle = gradient;
+	ctx.fillRect(0, 0, width, height);
+	let blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+	return new win.File([blob], name, { type: "image/png" });
+}
+
+// Gecko ignores clipboardData on synthetic ClipboardEvents, so call the view's paste handler
+// with an event-shaped object instead. A real clipboard paste is tried separately below.
+function pasteInto(plugin, input, { files = [] } = {}) {
+	let view = [...plugin.views.values()].find((v) => v.input === input);
+	let event = {
+		clipboardData: { files },
+		defaultPrevented: false,
+		preventDefault() {
+			this.defaultPrevented = true;
+		}
+	};
+	view.onPaste(event);
+	return event;
+}
+
+// Put a PNG on the system clipboard the way Zotero's own "Copy Image" does
+async function putImageOnClipboard(file) {
+	const { classes: Cc, interfaces: Ci } = Components;
+	let bytes = new Uint8Array(await file.arrayBuffer());
+	let container = Cc["@mozilla.org/image/tools;1"].getService(Ci.imgITools).decodeImageFromArrayBuffer(bytes.buffer, "image/png");
+	let trans = Cc["@mozilla.org/widget/transferable;1"].createInstance(Ci.nsITransferable);
+	trans.init(null);
+	trans.addDataFlavor("application/x-moz-nativeimage");
+	trans.setTransferData("application/x-moz-nativeimage", container);
+	Services.clipboard.setData(trans, null, Ci.nsIClipboard.kGlobalClipboard);
+}
+
+function readClipboardText() {
+	const { classes: Cc, interfaces: Ci } = Components;
+	let trans = Cc["@mozilla.org/widget/transferable;1"].createInstance(Ci.nsITransferable);
+	trans.init(null);
+	trans.addDataFlavor("text/plain");
+	Services.clipboard.getData(trans, Ci.nsIClipboard.kGlobalClipboard);
+	let data = {};
+	try {
+		trans.getTransferData("text/plain", data);
+		return data.value.QueryInterface(Ci.nsISupportsString).data;
+	}
+	catch (e) {
+		return "";
+	}
+}
+
+function pointer(win, target, type, x, y) {
+	target.dispatchEvent(new win.PointerEvent(type, {
+		clientX: x, clientY: y, pointerId: 1, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true
+	}));
 }
 
 function findSection(container, paneID) {
@@ -263,11 +328,11 @@ async function run() {
 	await step("copy and save as note", async () => {
 		let assistants = root.querySelectorAll(".aichat-assistant");
 		let lastActions = assistants[assistants.length - 1].querySelectorAll(".aichat-actions button");
-		let copyBtn = [...lastActions].find((b) => b.textContent === "Copy");
+		let copyBtn = [...lastActions].find((b) => b.classList.contains("aichat-copy"));
 		copyBtn.click();
-		check("copy button confirms", copyBtn.textContent === "Copied");
+		check("copy button confirms", copyBtn.title === "Copied" && copyBtn.dataset.icon === "check", copyBtn.title);
 
-		let saveBtn = [...lastActions].find((b) => b.textContent === "Save as note");
+		let saveBtn = [...lastActions].find((b) => b.classList.contains("aichat-save-note"));
 		let before = item.getNotes().length;
 		saveBtn.click();
 		await waitFor(() => item.getNotes().length === before + 1, 10000, "note saved");
@@ -277,7 +342,7 @@ async function run() {
 			&& html.includes("<table>") && html.includes('href="https://example.org/paper"') && html.includes("<h1>AI: Follow-up question</h1>"), html.slice(0, 500));
 		check("note footer names the model", html.includes("claude-opus-5-5"));
 
-		let saveChat = [...root.querySelectorAll(".aichat-toolbar button")].find((b) => b.textContent === "Save chat");
+		let saveChat = root.querySelector(".aichat-header .aichat-save-chat");
 		saveChat.click();
 		await waitFor(() => item.getNotes().length === before + 2, 10000, "chat note saved");
 		// getNotes() isn't ordered by creation, so find the note by its title
@@ -297,16 +362,18 @@ async function run() {
 		let input = root.querySelector(".aichat-input");
 		let send = root.querySelector(".aichat-send");
 		input.value = "SLOW please";
+		input.dispatchEvent(new win.Event("input", { bubbles: true }));
 		send.click();
 		await waitFor(() => conv.messages[7]?.text.includes("slow chunk 1"), 15000, "slow stream to start");
-		check("button shows Stop while streaming", send.textContent === "Stop");
+		check("button shows Stop while streaming", send.classList.contains("aichat-stop") && send.title === "Stop" && !send.disabled);
 		await screenshot(win, "02-library-streaming");
 		send.click();
 		await waitFor(() => !conv.busy, 10000, "stop");
 		await sleep(200);
 		check("answer marked stopped", conv.messages[7].status === "stopped");
 		check("UI shows Stopped", root.textContent.includes("Stopped."));
-		check("button back to Send", send.textContent === "Send");
+		check("button back to Send", !send.classList.contains("aichat-stop") && send.dataset.icon === "send");
+		check("Send is disabled while the box is empty", send.disabled);
 		let requests = (await readRequests()).filter((r) => r.path === "/v1/messages");
 		let last = requests[requests.length - 1];
 		check("history excludes the failed turn", !JSON.stringify(last.body.messages).includes("FAIL401"));
@@ -334,7 +401,7 @@ async function run() {
 			"openai.model": "test-model",
 			"openai.apiKey": ""
 		});
-		[...root.querySelectorAll(".aichat-toolbar button")].find((b) => b.textContent === "New chat").click();
+		root.querySelector(".aichat-new-chat").click();
 		await waitFor(() => root.querySelector(".aichat-chip"), 5000, "empty state after New chat");
 		check("New chat clears the conversation", conv.messages.length === 0 && conv.context === null);
 		root.querySelector(".aichat-chip").click();
@@ -367,7 +434,7 @@ async function run() {
 		check("chat UI rendered in reader side pane", !!readerRoot);
 		await waitFor(() => readerRoot.querySelectorAll(".aichat-msg").length === conv.messages.length, 10000, "shared chat");
 		check("reader shows the same conversation as the library", readerRoot.querySelectorAll(".aichat-msg").length === conv.messages.length);
-		[...readerRoot.querySelectorAll(".aichat-toolbar button")].find((b) => b.textContent === "New chat").click();
+		readerRoot.querySelector(".aichat-new-chat").click();
 		let reply = await ask(readerRoot, conv, "Question from the reader", 2);
 		check("reply in reader", reply.status === "done" && reply.text.includes("CONTEXT-SEEN"), reply.error);
 		let r = (await readRequests()).filter((x) => x.path === "/v1/messages").pop();
@@ -402,6 +469,13 @@ async function run() {
 		check("switching provider toggles sections",
 			doc.getElementById("zotero-ai-chat-anthropic").hidden && !doc.getElementById("zotero-ai-chat-openai").hidden);
 		await screenshot(prefWin, "05-settings-openai");
+		for (let id of ["openrouter", "requesty"]) {
+			provider.value = id;
+			provider.dispatchEvent(new prefWin.Event("command"));
+			check(`switching to ${id} shows only its section`,
+				!doc.getElementById("zotero-ai-chat-" + id).hidden && doc.getElementById("zotero-ai-chat-anthropic").hidden
+				&& doc.getElementById("zotero-ai-chat-openai").hidden);
+		}
 		provider.value = "anthropic";
 		provider.dispatchEvent(new prefWin.Event("command"));
 
@@ -424,8 +498,376 @@ async function run() {
 		let result = doc.getElementById("zotero-ai-chat-test-result");
 		await waitFor(() => result.textContent.startsWith("Connected"), 20000, "test connection result").catch(() => {});
 		check("Test connection succeeds", result.textContent.startsWith("Connected") && result.textContent.includes("OK"), result.textContent);
+		let fav = doc.getElementById("zotero-ai-chat-anthropic-favorites");
+		let originalFavorites = fav.value;
+		check("favorites box lists the defaults", fav.value.split("\n").includes("claude-haiku-5-5"), JSON.stringify(fav.value));
+		let modelField = doc.getElementById("zotero-ai-chat-anthropic-model");
+		let available = doc.getElementById("zotero-ai-chat-anthropic-available");
+		doc.getElementById("zotero-ai-chat-anthropic-fetch").dispatchEvent(new prefWin.Event("command"));
+		await waitFor(() => !available.hidden, 15000, "fetched model list").catch(() => {});
+		let ids = [...available.options].map((o) => o.value);
+		check("Load models lists the server's models", ids.includes("claude-fable-5-1") && ids.includes("claude-haiku-5-5"), ids.join(","));
+		available.value = "claude-fable-5-1";
+		available.dispatchEvent(new prefWin.Event("change"));
+		check("picking a fetched model sets the Model field and pref",
+			modelField.value === "claude-fable-5-1" && Zotero.Prefs.get("extensions.zotero-ai-chat.anthropic.model", true) === "claude-fable-5-1");
+		check("picked model is added to favorites", fav.value.split("\n").includes("claude-fable-5-1"));
+		modelField.value = "claude-opus-5-5";
+		modelField.dispatchEvent(new prefWin.Event("input"));
+		fav.value = originalFavorites;
+		fav.dispatchEvent(new prefWin.Event("input"));
+		check("restored Model and favorites", Zotero.Prefs.get("extensions.zotero-ai-chat.anthropic.model", true) === "claude-opus-5-5"
+			&& fav.value === originalFavorites);
 		await screenshot(prefWin, "06-settings-claude");
 		prefWin.close();
+	});
+
+	await step("model menu in the chat", async () => {
+		await win.ZoteroPane.selectItem(item.id);
+		let { root: menuRoot } = await openChat(win, details, AIChat.paneID);
+		let select = await waitFor(() => menuRoot.querySelector(".aichat-model-select"), 5000, "model menu");
+		let values = [...select.options].map((o) => o.value);
+		check("model menu lists the favorite models",
+			["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"].every((m) => values.includes(m)), values.join(","));
+		check("model menu shows the current model", select.value === "claude-opus-5-5", select.value);
+		select.value = "claude-haiku-5-5";
+		select.dispatchEvent(new win.Event("change", { bubbles: true }));
+		check("choosing a model saves it", Zotero.Prefs.get("extensions.zotero-ai-chat.anthropic.model", true) === "claude-haiku-5-5");
+		let reply = await ask(menuRoot, conv, "Which model are you?", 4);
+		check("question completes with the chosen model", reply.status === "done", reply.error);
+		let r = (await readRequests()).filter((x) => x.path === "/v1/messages").pop();
+		check("request is sent with the chosen model", r.body.model === "claude-haiku-5-5", r.body.model);
+		select.value = "claude-opus-5-5";
+		select.dispatchEvent(new win.Event("change", { bubbles: true }));
+		check("switching back saves the pref", Zotero.Prefs.get("extensions.zotero-ai-chat.anthropic.model", true) === "claude-opus-5-5");
+		// A provider change made in Settings while the chat is open must update the menu right away;
+		// otherwise picking from a stale list would save another service's model ID
+		setPrefs({ provider: "openrouter" });
+		await sleep(400);
+		let other = [...select.options].map((o) => o.value);
+		check("menu follows a provider change made in Settings", other.includes("openai/gpt-6-luna") && !other.includes("claude-haiku-5-5"), other.join(","));
+		setPrefs({ provider: "anthropic", "openrouter.model": "minimax/minimax-m3.1-flash" });
+		await sleep(400);
+		check("menu follows the provider back", [...select.options].map((o) => o.value).includes("claude-haiku-5-5") && select.value === "claude-opus-5-5", select.value);
+		await screenshot(win, "07-model-menu");
+	});
+
+	await step("OpenRouter and Requesty presets", async () => {
+		await win.ZoteroPane.selectItem(item.id);
+		let { root: presetRoot } = await openChat(win, details, AIChat.paneID);
+		let presets = [
+			["openrouter", "or-test-key", "minimax/minimax-m3.1-flash", "openai/gpt-6-luna"],
+			["requesty", "rq-test-key", "alibaba/qwen3.8-max", "openai/gpt-6-luna"]
+		];
+		for (let [provider, key, model, favorite] of presets) {
+			setPrefs({ provider, [`${provider}.apiKey`]: key, [`${provider}.baseURL`]: `http://127.0.0.1:${config.port}/v1`, [`${provider}.model`]: model });
+			AIChat.clearConversation(conv);
+			let reply = await ask(presetRoot, conv, `Hello via ${provider}`, 2);
+			check(`${provider}: answer completes`, reply.status === "done" && reply.text.includes("CONTEXT-SEEN"), reply.error || reply.text.slice(0, 80));
+			let r = (await readRequests()).filter((x) => x.path === "/v1/chat/completions").pop();
+			check(`${provider}: sent to /chat/completions with its key and model`,
+				r && r.headers.authorization === `Bearer ${key}` && r.body.model === model,
+				r ? `${r.headers.authorization} ${r.body.model}` : "no request");
+			let menu = presetRoot.querySelector(".aichat-model-select");
+			let values = [...menu.options].map((o) => o.value);
+			check(`${provider}: model menu shows its favorites`, values.includes(favorite) && values.includes(model), values.join(","));
+		}
+		setPrefs({ provider: "anthropic" });
+	});
+
+	await step("images: paste, crop, send", async () => {
+		await win.ZoteroPane.selectItem(item.id);
+		let { root: imgRoot } = await openChat(win, details, AIChat.paneID);
+		AIChat.clearConversation(conv);
+		setPrefs({ provider: "anthropic" });
+		let input = imgRoot.querySelector(".aichat-input");
+		let thumbs = () => imgRoot.querySelectorAll(".aichat-tray .aichat-thumb").length;
+
+		let textPaste = pasteInto(AIChat, input, { files: [] });
+		check("pasting plain text is left alone", !textPaste.defaultPrevented);
+
+		let paste = pasteInto(AIChat, input, { files: [await makePNGFile(win, 200, 120, "#3366cc", "a.png")] });
+		check("pasting an image is handled, not inserted as text", paste.defaultPrevented);
+		await waitFor(() => conv.pendingImages.length === 1, 10000, "pasted image");
+		await sleep(200);
+		check("thumbnail shown in the tray", thumbs() === 1);
+		check("pasted image stored as PNG", conv.pendingImages[0].mediaType === "image/png" && conv.pendingImages[0].data.startsWith("iVBOR"));
+		check("small image keeps its size", conv.pendingImages[0].width === 200 && conv.pendingImages[0].height === 120);
+
+		pasteInto(AIChat, input, { files: [await makePNGFile(win, 4000, 2500, "#cc3366", "big.png")] });
+		await waitFor(() => conv.pendingImages.length === 2, 15000, "large pasted image");
+		check("large image is scaled to 2000px", conv.pendingImages[1].width === 2000 && conv.pendingImages[1].height === 1250,
+			`${conv.pendingImages[1].width}x${conv.pendingImages[1].height}`);
+
+		let removeBtn = imgRoot.querySelector(".aichat-tray .aichat-remove");
+		removeBtn.click();
+		await waitFor(() => conv.pendingImages.length === 1, 5000, "remove");
+		await sleep(200);
+		check("remove button removes the image and its thumbnail", thumbs() === 1 && conv.pendingImages[0].width === 2000);
+
+		// Ctrl+V with text on the clipboard is left to the normal paste
+		Zotero.Utilities.Internal.copyTextToClipboard("some text");
+		let textKey = new win.KeyboardEvent("keydown", { key: "v", ctrlKey: !Zotero.isMac, metaKey: Zotero.isMac, bubbles: true, cancelable: true });
+		input.dispatchEvent(textKey);
+		check("Ctrl+V with text on the clipboard pastes normally", !textKey.defaultPrevented);
+
+		// Paste image button with no image on the clipboard explains why nothing happened
+		let pasteBtn = imgRoot.querySelector(".aichat-paste");
+		pasteBtn.click();
+		await sleep(300);
+		check("Paste image with no image on the clipboard says so", imgRoot.querySelector(".aichat-context").textContent.includes("no image on the clipboard"),
+			imgRoot.querySelector(".aichat-context").textContent);
+
+		// A real image on the system clipboard. Headless sessions can only hold text there,
+		// so these checks run only in a session with a real clipboard (HEADLESS=0).
+		let realImage = await makePNGFile(win, 90, 70, "#ccaa33", "real.png");
+		let wlCopy = Zotero.Prefs.get("extensions.uiharness.wlCopy", true);
+		if (wlCopy) {
+			// Another program owns the clipboard image, as with a screenshot tool
+			const { Subprocess } = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs");
+			let proc = await Subprocess.call({ command: wlCopy, arguments: ["--type", "image/png"], stdin: "pipe", environmentAppend: true });
+			await proc.stdin.write(new Uint8Array(await realImage.arrayBuffer()));
+			await proc.stdin.close();
+			await proc.wait();
+			await sleep(500);
+			log("clipboard image placed with wl-copy");
+		}
+		else {
+			await putImageOnClipboard(realImage);
+		}
+		if (AIChat.clipboardHasImage()) {
+			let before = conv.pendingImages.length;
+			let key = new win.KeyboardEvent("keydown", { key: "v", ctrlKey: !Zotero.isMac, metaKey: Zotero.isMac, bubbles: true, cancelable: true });
+			input.dispatchEvent(key);
+			check("Ctrl+V with an image on the clipboard is handled", key.defaultPrevented);
+			await waitFor(() => conv.pendingImages.length === before + 1, 10000, "Ctrl+V image").catch(() => {});
+			check("Ctrl+V attaches the clipboard image", conv.pendingImages.length === before + 1 && conv.pendingImages[before].width === 90,
+				conv.pendingImages[before] ? `${conv.pendingImages[before].width}x${conv.pendingImages[before].height}` : "nothing attached");
+			pasteBtn.click();
+			await waitFor(() => conv.pendingImages.length === before + 2, 10000, "Paste image button").catch(() => {});
+			check("Paste image button attaches the clipboard image", conv.pendingImages.length === before + 2);
+			conv.pendingImages = conv.pendingImages.slice(0, before);
+			AIChat.notify(conv);
+		}
+		else {
+			log("clipboard image checks skipped: this session's clipboard can't hold images (run with HEADLESS=0)");
+		}
+		Zotero.Utilities.Internal.copyTextToClipboard("");
+
+		// Crop tool: Esc cancels
+		let cropBtn = imgRoot.querySelector(".aichat-crop");
+		cropBtn.click();
+		let overlay = await waitFor(() => win.document.querySelector(".aichat-crop-overlay"), 5000, "crop overlay");
+		let ob = overlay.getBoundingClientRect();
+		check("crop overlay covers the whole window", ob.left <= 1 && ob.top <= 1 && ob.width >= win.innerWidth - 1 && ob.height >= win.innerHeight - 1,
+			`overlay ${Math.round(ob.left)},${Math.round(ob.top)} ${Math.round(ob.width)}x${Math.round(ob.height)} in window ${win.innerWidth}x${win.innerHeight}`);
+		for (let [x, y] of [[300, 300], [700, 150], [win.innerWidth - 50, win.innerHeight / 2]]) {
+			let hit = win.document.elementFromPoint(x, y);
+			check(`a click at ${Math.round(x)},${Math.round(y)} reaches the overlay`, hit && overlay.contains(hit), hit ? hit.localName + "#" + hit.id : "nothing");
+		}
+		win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+		await waitFor(() => !win.document.querySelector(".aichat-crop-overlay"), 5000, "overlay closed by Esc");
+		await sleep(300);
+		check("Esc cancels without adding an image", conv.pendingImages.length === 1);
+
+		// A tiny drag is ignored
+		cropBtn.click();
+		overlay = await waitFor(() => win.document.querySelector(".aichat-crop-overlay"), 5000, "crop overlay again");
+		pointer(win, overlay, "pointerdown", 300, 300);
+		pointer(win, overlay, "pointerup", 303, 302);
+		await sleep(400);
+		check("a tiny drag adds nothing", conv.pendingImages.length === 1 && !win.document.querySelector(".aichat-crop-overlay"));
+
+		// Real crop
+		cropBtn.click();
+		overlay = await waitFor(() => win.document.querySelector(".aichat-crop-overlay"), 5000, "crop overlay third time");
+		pointer(win, overlay, "pointerdown", 300, 400);
+		pointer(win, overlay, "pointermove", 420, 460);
+		pointer(win, overlay, "pointermove", 520, 520);
+		let box = overlay.querySelector(".aichat-crop-box");
+		check("selection box follows the drag", !box.hidden && box.style.width === "220px" && box.style.height === "120px", `${box.style.width} x ${box.style.height}`);
+		pointer(win, overlay, "pointerup", 520, 520);
+		await waitFor(() => conv.pendingImages.length === 2, 15000, "cropped image");
+		let crop = conv.pendingImages[1];
+		let dpr = win.devicePixelRatio || 1;
+		check("overlay removed after the crop", !win.document.querySelector(".aichat-crop-overlay"));
+		check("crop has the selected size", Math.abs(crop.width - 220 * dpr) <= 2 && Math.abs(crop.height - 120 * dpr) <= 2, `${crop.width}x${crop.height} dpr ${dpr}`);
+		check("crop contains real pixels, not a blank image", crop.data.length > 600, crop.data.length);
+		await sleep(200);
+		check("two thumbnails in the tray", thumbs() === 2);
+
+		// Send to Claude
+		let reply = await ask(imgRoot, conv, "What does the figure show?", 2);
+		check("answer completes and the model saw the images", reply.status === "done" && reply.text.includes("IMAGE-SEEN"), reply.error || reply.text.slice(0, 80));
+		let r = (await readRequests()).filter((x) => x.path === "/v1/messages").pop();
+		let content = r.body.messages[0].content;
+		check("request: two image blocks then the text", Array.isArray(content) && content.length === 3
+			&& content[0].type === "image" && content[1].type === "image" && content[2].type === "text"
+			&& content[2].text === "What does the figure show?", JSON.stringify(content).slice(0, 200));
+		check("request: base64 PNG data with the right media type", content[0].source.type === "base64" && content[0].source.media_type === "image/png"
+			&& content[0].source.data.startsWith("iVBOR") && !JSON.stringify(r.body).includes("dataURL"));
+		await sleep(250);
+		check("tray emptied after sending", thumbs() === 0 && imgRoot.querySelector(".aichat-tray").hidden);
+		check("question bubble shows the thumbnails", imgRoot.querySelectorAll(".aichat-user .aichat-thumb").length === 2);
+		await screenshot(win, "08-images");
+
+		// Follow-up keeps the images in the conversation
+		await ask(imgRoot, conv, "And the second one?", 4);
+		let followUp = (await readRequests()).filter((x) => x.path === "/v1/messages").pop();
+		check("follow-up still includes the earlier images", Array.isArray(followUp.body.messages[0].content)
+			&& followUp.body.messages[0].content.filter((b) => b.type === "image").length === 2);
+
+		// An OpenAI-compatible service gets image_url parts
+		setPrefs({ provider: "openrouter", "openrouter.apiKey": "or-test-key", "openrouter.baseURL": `http://127.0.0.1:${config.port}/v1` });
+		AIChat.clearConversation(conv);
+		pasteInto(AIChat, input, { files: [await makePNGFile(win, 80, 60, "#33cc66", "c.png")] });
+		await waitFor(() => conv.pendingImages.length === 1, 10000, "image for OpenRouter");
+		let reply2 = await ask(imgRoot, conv, "Describe it", 2);
+		check("OpenAI-compatible answer saw the image", reply2.status === "done" && reply2.text.includes("IMAGE-SEEN"), reply2.error || reply2.text.slice(0, 80));
+		let o = (await readRequests()).filter((x) => x.path === "/v1/chat/completions").pop();
+		let last = o.body.messages[o.body.messages.length - 1].content;
+		check("request: text part and image_url data URL", Array.isArray(last) && last[0].type === "text" && last[1].type === "image_url"
+			&& last[1].image_url.url.startsWith("data:image/png;base64,iVBOR"), JSON.stringify(last).slice(0, 160));
+		setPrefs({ provider: "anthropic" });
+
+		// An image saved in a note is mentioned
+		let saveBtn = [...imgRoot.querySelectorAll(".aichat-actions .aichat-save-note")].pop();
+		let before = item.getNotes().length;
+		saveBtn.click();
+		await waitFor(() => item.getNotes().length === before + 1, 10000, "note with image mention");
+		let noteHTML = Zotero.Items.get(item.getNotes()).map((n) => n.getNote()).find((h) => h.includes("Describe it")) || "";
+		check("note says an image was attached", noteHTML.includes("[1 image attached]"), noteHTML.slice(0, 200));
+	});
+
+	await step("chat history", async () => {
+		setPrefs({ provider: "anthropic" });
+		await win.ZoteroPane.selectItem(item.id);
+		let { root: hRoot } = await openChat(win, details, AIChat.paneID);
+		conv = AIChat.getConversation(item);
+		let file = PathUtils.join(Zotero.DataDirectory.dir, "ai-chat", `${item.libraryID}_${item.key}.json`);
+		let readFile = async () => (await IOUtils.readJSON(file)).chats;
+		let rowTitles = () => [...hRoot.querySelectorAll(".aichat-history-title")].map((t) => t.textContent);
+
+		hRoot.querySelector(".aichat-new-chat").click();
+		await ask(hRoot, conv, "History one", 2);
+		let chats = await waitFor(async () => {
+			let c = await readFile();
+			return c[0]?.title === "History one" && c;
+		}, 5000, "history file");
+		check("chat is saved in the data directory after the answer",
+			chats[0].messages.length === 2 && chats[0].messages[1].text.includes("CONTEXT-SEEN"), file);
+		check("header shows the chat's title", hRoot.querySelector(".aichat-chat-title").textContent === "History one",
+			hRoot.querySelector(".aichat-chat-title").textContent);
+		let firstID = conv.chatID;
+
+		hRoot.querySelector(".aichat-new-chat").click();
+		check("New chat resets the title", hRoot.querySelector(".aichat-chat-title").textContent === "New chat");
+		await ask(hRoot, conv, "History two", 2);
+
+		hRoot.querySelector(".aichat-history-toggle").click();
+		let rows = await waitFor(() => {
+			let r = hRoot.querySelectorAll(".aichat-history-row");
+			return r.length >= 2 && r;
+		}, 5000, "history rows");
+		let titles = rowTitles();
+		check("history lists the item's chats, newest first", titles[0] === "History two" && titles[1] === "History one"
+			&& titles.includes("What is the marker?"), titles.join(" | "));
+		check("the open chat is highlighted", rows[0].classList.contains("aichat-current") && !rows[1].classList.contains("aichat-current"));
+		check("the list replaces the messages while open",
+			hRoot.querySelector(".aichat-messages").hidden && !hRoot.querySelector(".aichat-history").hidden);
+		let meta = rows[1].querySelector(".aichat-history-meta").textContent;
+		check("rows show the question count and when", meta.startsWith("1 question · today"), meta);
+		checkLayout(win, details, hRoot, "history list");
+		await screenshot(win, "09-history");
+
+		rows[1].querySelector(".aichat-history-open").click();
+		await waitFor(() => conv.chatID === firstID && !hRoot.querySelector(".aichat-messages").hidden, 5000, "chat opened");
+		await sleep(200);
+		check("opening a saved chat shows its messages", conv.messages.length === 2
+			&& hRoot.querySelectorAll(".aichat-msg").length === 2
+			&& hRoot.querySelector(".aichat-user .aichat-bubble")?.textContent === "History one");
+		await ask(hRoot, conv, "History one follow-up", 4);
+		let r = (await readRequests()).filter((x) => x.path === "/v1/messages").pop();
+		check("continuing a saved chat sends its earlier messages", r.body.messages.length === 3
+			&& r.body.messages[0].content === "History one" && r.body.messages[2].content === "History one follow-up",
+			JSON.stringify(r.body.messages).slice(0, 200));
+
+		hRoot.querySelector(".aichat-history-toggle").click();
+		await waitFor(() => rowTitles()[0] === "History one", 5000, "continued chat moves to the top");
+		let twoRow = [...hRoot.querySelectorAll(".aichat-history-row")]
+			.find((row) => row.querySelector(".aichat-history-title").textContent === "History two");
+		let del = twoRow.querySelector(".aichat-history-delete");
+		del.click();
+		check("the first delete click asks for confirmation", del.classList.contains("aichat-confirm") && del.textContent === "Delete");
+		await screenshot(win, "10-history-delete");
+		del.click();
+		await waitFor(async () => !(await readFile()).some((c) => c.title === "History two"), 5000, "chat deleted from the file");
+		await waitFor(() => !rowTitles().includes("History two"), 5000, "row removed");
+		check("a deleted chat leaves the list and the file", !rowTitles().includes("History two"));
+		check("deleting another chat keeps the open one", conv.chatID === firstID && conv.messages.length === 4);
+		hRoot.querySelector(".aichat-history-toggle").click();
+		check("the list closes again", !hRoot.querySelector(".aichat-messages").hidden && hRoot.querySelector(".aichat-history").hidden);
+
+		// A chat with an image survives a restart
+		hRoot.querySelector(".aichat-new-chat").click();
+		pasteInto(AIChat, hRoot.querySelector(".aichat-input"), { files: [await makePNGFile(win, 64, 48, "#aa33cc", "h.png")] });
+		await waitFor(() => conv.pendingImages.length === 1, 10000, "image for the history chat");
+		await ask(hRoot, conv, "History image", 2);
+		let imageChatID = conv.chatID;
+		await waitFor(async () => (await readFile())[0]?.id === imageChatID, 5000, "image chat saved");
+		let saved = (await readFile())[0];
+		check("the saved chat keeps the image", saved.messages[0].images.length === 1
+			&& saved.messages[0].images[0].data.startsWith("iVBOR") && saved.messages[0].images[0].width === 64
+			&& !JSON.stringify(saved).includes("dataURL"));
+
+		// Like a restart: forget what's in memory, then show the item again
+		await win.ZoteroPane.selectItem(item2.id);
+		AIChat.conversations.clear();
+		AIChat.historyCache.clear();
+		AIChat.lastChatIDs.clear();
+		await win.ZoteroPane.selectItem(item.id);
+		await details.scrollToPane(AIChat.paneID, "instant");
+		let restored = await waitFor(() => {
+			let c = AIChat.conversations.get(item.id);
+			return c && c.messages.length === 2 && c;
+		}, 10000, "chat restored from disk");
+		await sleep(250);
+		check("the latest chat reopens after a restart", restored.chatID === imageChatID && restored.messages[0].text === "History image");
+		check("its image is shown again", hRoot.querySelectorAll(".aichat-user .aichat-thumb").length === 1);
+		await ask(hRoot, restored, "History image follow-up", 4);
+		r = (await readRequests()).filter((x) => x.path === "/v1/messages").pop();
+		check("a restored image is sent again with a follow-up", Array.isArray(r.body.messages[0].content)
+			&& r.body.messages[0].content[0].type === "image" && r.body.messages[0].content[0].source.data.startsWith("iVBOR"));
+		conv = restored;
+
+		// Turned off: nothing new is saved, and the history button says why
+		setPrefs({ saveHistory: false });
+		await sleep(100);
+		let before = JSON.stringify(await readFile());
+		hRoot.querySelector(".aichat-new-chat").click();
+		await ask(hRoot, conv, "Not saved", 2);
+		await sleep(300);
+		check("with history off, chats aren't saved", JSON.stringify(await readFile()) === before);
+		hRoot.querySelector(".aichat-history-toggle").click();
+		check("with history off, the history button explains", hRoot.querySelector(".aichat-history").hidden
+			&& hRoot.querySelector(".aichat-context").textContent.includes("turned off"), hRoot.querySelector(".aichat-context").textContent);
+		setPrefs({ saveHistory: true });
+
+		// Deleting an item deletes its chats
+		let temp = new Zotero.Item("book");
+		temp.setField("title", "Temporary Book");
+		await temp.saveTx();
+		await win.ZoteroPane.selectItem(temp.id);
+		await openChat(win, details, AIChat.paneID);
+		let tconv = AIChat.getConversation(temp);
+		await ask(hRoot, tconv, "Short-lived", 2);
+		let tfile = PathUtils.join(Zotero.DataDirectory.dir, "ai-chat", `${temp.libraryID}_${temp.key}.json`);
+		await waitFor(() => IOUtils.exists(tfile), 5000, "history file for the temporary item");
+		await temp.eraseTx();
+		await waitFor(async () => !(await IOUtils.exists(tfile)), 5000, "history file removed").catch(() => {});
+		check("deleting an item deletes its saved chats", !(await IOUtils.exists(tfile)));
+		check("other items' chats are untouched", await IOUtils.exists(file));
+		await win.ZoteroPane.selectItem(item.id);
 	});
 
 	await step("disable and re-enable the plugin", async () => {
@@ -443,9 +885,142 @@ async function run() {
 		await win.ZoteroPane.selectItem(item.id);
 		let { root: newRoot } = await openChat(win, details, again.paneID);
 		check("chat UI renders after re-enable", !!newRoot);
-		let conv3 = again.getConversation(item);
-		let reply = await ask(newRoot, conv3, "After re-enable", 2);
+		let conv3 = await waitFor(() => {
+			let c = again.conversations.get(item.id);
+			return c && c.historyChecked && !c.restoring && c;
+		}, 10000, "restored conversation");
+		check("the saved chat comes back after the plugin restarts", conv3.messages.length === 4
+			&& conv3.messages[0].text === "History image", conv3.messages.map((m) => (m.text || "").slice(0, 24)).join(" | "));
+		let reply = await ask(newRoot, conv3, "After re-enable", conv3.messages.length + 2);
 		check("chat works after re-enable", reply.status === "done", reply.error);
+	});
+
+	await step("delete all chat history from settings", async () => {
+		let plugin = Zotero.AIChat;
+		Zotero.Utilities.Internal.openPreferences(plugin.prefPaneID);
+		let prefWin = await waitFor(() => Services.wm.getMostRecentWindow("zotero:pref"), 20000, "preferences window");
+		let doc = prefWin.document;
+		let button = await waitFor(() => doc.getElementById("zotero-ai-chat-clear-history"), 20000, "delete history button");
+		let checkbox = doc.getElementById("zotero-ai-chat-save-history");
+		await waitFor(() => checkbox.checked, 5000, "history checkbox").catch(() => {});
+		check("history checkbox reflects the pref", checkbox.checked === true);
+		check("OpenRouter and Requesty sections have their own headings",
+			doc.querySelector("#zotero-ai-chat-openrouter h2")?.textContent === "OpenRouter"
+			&& doc.querySelector("#zotero-ai-chat-requesty h2")?.textContent === "Requesty");
+		let dir = PathUtils.join(Zotero.DataDirectory.dir, "ai-chat");
+		check("history folder exists before deleting", await IOUtils.exists(dir));
+		button.dispatchEvent(new prefWin.Event("command"));
+		await sleep(200);
+		check("the first click asks for confirmation", button.getAttribute("label").startsWith("Click again") && await IOUtils.exists(dir));
+		button.scrollIntoView();
+		await sleep(300);
+		await screenshot(prefWin, "11-settings-history");
+		button.dispatchEvent(new prefWin.Event("command"));
+		let result = doc.getElementById("zotero-ai-chat-clear-history-result");
+		await waitFor(() => result.textContent.includes("deleted"), 10000, "delete result").catch(() => {});
+		check("the second click deletes all chat history", result.textContent === "All chat history was deleted."
+			&& !(await IOUtils.exists(dir)), result.textContent);
+		check("open chats are emptied too", plugin.getConversation(item).messages.length === 0);
+		prefWin.close();
+	});
+
+	await step("maths (LaTeX) in answers and notes", async () => {
+		// Runs after the re-enable step, so KaTeX is loaded by the restarted plugin
+		let plugin = Zotero.AIChat;
+		let paper = new Zotero.Item("journalArticle");
+		paper.setField("title", "Maths Paper");
+		await paper.saveTx();
+		await win.ZoteroPane.selectItem(paper.id);
+		let { root: mroot } = await openChat(win, details, plugin.paneID);
+		let mconv = plugin.getConversation(paper);
+		let reply = await ask(mroot, mconv, "MATH please", 2);
+		check("maths answer completed", reply.status === "done", reply.status + " " + (reply.error || ""));
+
+		let answer = [...mroot.querySelectorAll(".aichat-assistant .aichat-answer")].pop();
+		let formulas = answer.querySelectorAll(".katex");
+		let displays = answer.querySelectorAll(".katex-display");
+		check("formulas rendered by KaTeX (5 inline, 2 displayed)", formulas.length === 7 && displays.length === 2,
+			`${formulas.length} formulas, ${displays.length} displayed`);
+		check("the broken formula is shown as written", answer.querySelector(".aichat-math-error")?.textContent === "\\(\\frac{a\\)",
+			answer.querySelector(".aichat-math-error")?.outerHTML);
+		let visible = answer.cloneNode(true);
+		visible.querySelectorAll(".katex-mathml, .aichat-math-error").forEach((e) => e.remove());
+		check("no LaTeX source left in the visible text", !visible.textContent.includes("\\"), visible.textContent.slice(0, 300));
+		check("prices stay text", visible.textContent.includes("a run costs $5 and $10 with"), visible.textContent.slice(0, 300));
+
+		let font = win.getComputedStyle(formulas[0]).fontFamily;
+		check("KaTeX stylesheet applied", /^"?KaTeX_Main/.test(font), font);
+		check("formulas use the answer's text colour (light and dark)",
+			win.getComputedStyle(formulas[0]).color === win.getComputedStyle(answer).color, win.getComputedStyle(formulas[0]).color);
+		let mathml = formulas[0].querySelector(".katex-mathml math");
+		check("MathML copy for screen readers is present but not drawn", !!mathml
+			&& formulas[0].querySelector(".katex-mathml").getBoundingClientRect().width <= 1);
+		let strut = formulas[0].querySelector(".katex-strut");
+		check("KaTeX's sizing styles survived", !!strut?.style.height, strut?.getAttribute("style"));
+		check("square roots and arrows are drawn (SVG)", answer.querySelectorAll(".katex-html svg path").length >= 2,
+			answer.querySelectorAll(".katex-html svg").length);
+
+		await win.document.fonts.ready;
+		let faces = [...win.document.fonts].filter((f) => f.family.replace(/"/g, "").startsWith("KaTeX_"));
+		let loaded = faces.filter((f) => f.status === "loaded").map((f) => `${f.family.replace(/"/g, "")} ${f.style}`);
+		let failed = faces.filter((f) => f.status === "error").map((f) => f.family);
+		check("KaTeX fonts load from the plugin", loaded.some((f) => f.startsWith("KaTeX_Main"))
+			&& loaded.some((f) => f.startsWith("KaTeX_Math")) && !failed.length,
+		`loaded: ${loaded.join(", ")}; failed: ${failed.join(", ")}`);
+
+		let wide = displays[1];
+		check("a wide equation scrolls inside the answer", wide.scrollWidth > wide.clientWidth + 50
+			&& wide.getBoundingClientRect().right <= details.getBoundingClientRect().right + 1,
+		`${wide.scrollWidth} in ${wide.clientWidth}`);
+		checkLayout(win, details, mroot, "maths answer");
+
+		// Copying selected text gives the formulas as LaTeX, not KaTeX's text twice over.
+		// The selection starts inside the first formula, which is then copied whole.
+		let sel = win.getSelection();
+		let firstLetter = formulas[0].querySelector(".katex-html .mord.mathnormal").firstChild;
+		sel.removeAllRanges();
+		let range = win.document.createRange();
+		range.setStart(firstLetter, 0);
+		range.setEndAfter(answer.querySelector(".katex-display").parentNode);
+		sel.addRange(range);
+		win.document.execCommand("copy");
+		sel.removeAllRanges();
+		let copied = readClipboardText();
+		check("copied selection has the formulas as LaTeX", copied.startsWith("$L_{\\text{img}}$ and $L_{\\text{unc}}$:\n\n")
+			&& copied.includes("\n$\\tilde C$: render after the appearance adjustment.\n")
+			&& copied.includes("a run costs $5 and $10 with $x_i^2$ terms.")
+			&& copied.endsWith("$$L_{\\text{DINO}}\n=\\min\\!\\left(1,\\;2-2\\cos(\\tilde D,D)\\right),\n\\qquad\nL_{\\text{uncertainty}}\n"
+				+ "=\\frac{L_{\\text{DINO}}}{2\\sigma^2}\n+\\lambda_{\\text{prior}}\\log\\sigma .$$"), copied);
+		let plainRange = win.document.createRange();
+		plainRange.selectNodeContents(answer.querySelector("li strong"));
+		sel.addRange(plainRange);
+		win.document.execCommand("copy");
+		sel.removeAllRanges();
+		check("copying text without formulas is unchanged", readClipboardText() === "after", readClipboardText());
+
+		displays[0].scrollIntoView({ block: "center" });
+		await sleep(300);
+		await screenshot(win, "12-maths");
+
+		// Saved as a note, the maths is in the note editor's format, and the editor draws it
+		mroot.querySelector(".aichat-assistant .aichat-save-note").click();
+		await waitFor(() => paper.getNotes().length === 1, 10000, "maths note saved");
+		let note = Zotero.Items.get(paper.getNotes()[0]);
+		let html = note.getNote();
+		check("note stores the maths for Zotero's note editor", html.includes('<span class="math">$L_{\\text{img}}$</span>')
+			&& (html.match(/<pre class="math">\$\$/g) || []).length === 2 && !html.includes("katex"), html.slice(0, 900));
+		await win.ZoteroPane.selectItem(note.id);
+		// (The reader tab has a note editor too, so look at all of them)
+		let rendered = await waitFor(() => {
+			let counts = [...win.document.querySelectorAll("note-editor")].map((editor) => {
+				let doc = editor.querySelector("iframe")?.contentDocument;
+				return doc?.body?.textContent.includes("The loss has two parts") ? doc.querySelectorAll(".katex").length : 0;
+			});
+			return Math.max(0, ...counts) >= 7 ? Math.max(...counts) : 0;
+		}, 15000, "maths drawn in the note editor").catch((e) => String(e));
+		check("Zotero's note editor draws the saved maths", typeof rendered === "number", rendered);
+		await sleep(500);
+		await screenshot(win, "13-maths-note");
 	});
 }
 

@@ -5,6 +5,7 @@ Streams SSE responses in the real formats and appends every request to a JSONL l
 The last user message selects the behavior:
   FAIL401   -> 401 error
   SLOW      -> slow stream (for testing Stop)
+  MATH      -> an answer with LaTeX maths
   otherwise -> a Markdown answer that says whether the paper's marker text was in the context
 
 Usage: mock_server.py PORT LOGFILE
@@ -13,8 +14,10 @@ import json
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 MARKER = "QUANTUM-BANANA-42"
+MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"]
 
 ANSWER = """## Summary
 The paper's marker is **{marker_status}** and the method is *self-attention*.
@@ -37,6 +40,27 @@ print("hello <world>")
 ```
 
 More at https://example.org/paper. Long link: https://example.org/{long_path}"""
+
+# LaTeX as models write it (the first part is from a real answer), with a wide equation,
+# a price that must stay text, and one broken formula
+MATH_ANSWER = r"""The loss has two parts, \(L_{\text{img}}\) and \(L_{\text{unc}}\):
+
+- \(\tilde C\): render **after** the appearance adjustment.
+- The paper sets \(\lambda_{\text{dssim}}=0.2\); a run costs $5 and $10 with $x_i^2$ terms.
+
+\[
+L_{\text{DINO}}
+=\min\!\left(1,\;2-2\cos(\tilde D,D)\right),
+\qquad
+L_{\text{uncertainty}}
+=\frac{L_{\text{DINO}}}{2\sigma^2}
++\lambda_{\text{prior}}\log\sigma .
+\]
+
+A wide one:
+$$\sum_{i=1}^{N} w_i \left\| \hat{C}_i - C_i \right\|_2^2 + \lambda_1 \sum_{j} \sqrt{\alpha_j} + \lambda_2 \int_0^1 \overrightarrow{v}(t)\,dt + \lambda_3 \operatorname{SSIM}(\hat C, C) + \lambda_4 \log \det \Sigma$$
+
+Broken: \(\frac{a\)"""
 
 # Long unbreakable content, to check the chat never widens Zotero's item pane
 LONG_LINE = "very_long_identifier_" * 15
@@ -70,6 +94,12 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_json(404, {"error": {"message": f"unknown path {self.path}"}})
 
+    def do_GET(self):
+        # Model list, for both the Claude (/v1/models) and OpenAI-style (/v1/models) shapes
+        if urlparse(self.path).path == "/v1/models":
+            return self.send_json(200, {"data": [{"id": m, "type": "model"} for m in MODELS]})
+        self.send_json(404, {"error": {"message": f"unknown path {self.path}"}})
+
     def send_json(self, status, obj):
         data = json.dumps(obj).encode()
         self.send_response(status)
@@ -89,6 +119,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     @staticmethod
+    def has_image(body):
+        # Claude: {"type": "image", ...}; OpenAI: {"type": "image_url", ...}
+        return '"type": "image' in json.dumps(body.get("messages"))
+
+    @staticmethod
     def last_user_text(messages):
         for m in reversed(messages or []):
             if m.get("role") == "user":
@@ -96,10 +131,14 @@ class Handler(BaseHTTPRequestHandler):
                 return c if isinstance(c, str) else json.dumps(c)
         return ""
 
-    def answer_chunks(self, context_text, question):
+    def answer_chunks(self, context_text, question, has_image=False):
         if "Reply with the single word OK" in question:
             return ["OK"]
+        if "MATH" in question:
+            return [MATH_ANSWER[i:i + 9] for i in range(0, len(MATH_ANSWER), 9)]
         status = "CONTEXT-SEEN" if MARKER in context_text else "CONTEXT-MISSING"
+        if has_image:
+            status += " IMAGE-SEEN"
         text = ANSWER.format(marker_status=status, long_line=LONG_LINE, long_path=LONG_PATH)
         return [text[i:i + 9] for i in range(0, len(text), 9)]
 
@@ -124,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
             chunks = [f"slow chunk {i}. " for i in range(40)]
             delay = 0.5
         else:
-            chunks = self.answer_chunks(system, question)
+            chunks = self.answer_chunks(system, question, self.has_image(body))
             delay = 0.01
         try:
             for chunk in chunks:
@@ -145,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
         model = body.get("model")
         self.start_stream()
         try:
-            for chunk in self.answer_chunks(system, question):
+            for chunk in self.answer_chunks(system, question, self.has_image(body)):
                 self.write("data: " + json.dumps({"model": model, "choices": [{"index": 0, "delta": {"content": chunk}}]}) + "\n\n")
                 time.sleep(0.01)
             self.write("data: " + json.dumps({"model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}) + "\n\n")

@@ -6,6 +6,8 @@
 #   ZOTERO_BIN  path to the zotero launcher (default /opt/zotero/zotero)
 #   HEADLESS=0  show the Zotero window while testing
 #   XPI=path    test a built .xpi instead of the src/ folder
+#   REAL_CLIPBOARD=1  with HEADLESS=0 on Wayland, also test pasting a real clipboard image
+#   DARK=1      run Zotero in dark mode (to check the screenshots in out/)
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -52,10 +54,28 @@ user_pref("extensions.uiharness.port", $port);
 user_pref("extensions.uiharness.pdfPath", "$work/test-paper.pdf");
 user_pref("extensions.uiharness.logPath", "$work/requests.jsonl");
 EOF
+if [ "${DARK:-0}" = 1 ]; then
+	echo 'user_pref("ui.systemUsesDarkTheme", 1);' >> "$work/profile/user.js"
+fi
+
+# REAL_CLIPBOARD=1 (with HEADLESS=0 on Wayland): put a real image on the system clipboard
+# with wl-copy, like a screenshot tool would. Your clipboard text is saved and restored.
+saved_clip=""
+if [ "${REAL_CLIPBOARD:-0}" = 1 ] && command -v wl-copy >/dev/null; then
+	saved_clip="$work/clipboard-saved"
+	wl-paste --no-newline --type text/plain > "$saved_clip" 2>/dev/null || : > "$saved_clip"
+	echo "user_pref(\"extensions.uiharness.wlCopy\", \"$(command -v wl-copy)\");" >> "$work/profile/user.js"
+fi
+restore_clipboard() {
+	if [ -n "$saved_clip" ]; then
+		if [ -s "$saved_clip" ]; then wl-copy < "$saved_clip"; else wl-copy --clear; fi
+		rm -f "$saved_clip"
+	fi
+}
 
 python3 "$here/mock_server.py" "$port" "$work/requests.jsonl" > "$work/mock.log" 2>&1 &
 mock=$!
-trap 'kill "$mock" 2>/dev/null || true' EXIT
+trap 'kill "$mock" 2>/dev/null || true; restore_clipboard' EXIT
 
 echo "Running Zotero (work dir: $work) ..."
 set +e
