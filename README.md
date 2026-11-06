@@ -12,7 +12,7 @@ Works with:
 
 1. Build the plugin (or use the prebuilt file in `build/`):
    ```sh
-   ./build.sh          # creates build/zotero-ai-chat-1.3.1.xpi
+   ./build.sh          # creates build/zotero-ai-chat-1.3.3.xpi
    ```
 2. In Zotero: **Tools → Plugins**, click the gear icon, choose **Install Plugin From File…**, and pick the `.xpi`.
 3. Open **Edit → Settings → AI Chat** (on macOS, **Zotero → Settings**) and choose a **Service**. Only that service's fields are shown:
@@ -31,10 +31,10 @@ Works with:
 
 ## Use
 
-- Select an item in your library, or open a PDF. Scroll the right-hand pane to **AI Chat**, or click its chat icon in the pane's side bar.
+- Select an item in your library, or open a PDF. Scroll the right-hand pane to **AI Chat**, or click its chat icon in the pane's side bar. The chat fills the pane from top to bottom: answers scroll inside it, and the text box stays at the bottom. The item's other sections are below it; scroll the pane outside the answers, or use the side bar, to get to them.
 - Type a question and press **Enter** (use **Shift+Enter** for a new line), or click one of the suggested questions. The arrow button sends; while an answer is being written it becomes a stop button.
 - The model menu next to the send button lists your favorite models (see below) and the current model.
-- **Images:** click the crop button (left, under the text box), then drag a box over a figure, table or equation, on the PDF or anywhere in the Zotero window (Esc cancels). Zoom the PDF in first for a sharper image. You can also copy an image (a screenshot tool, a browser, or Zotero's "Copy Image") and press **Ctrl+V** in the text box (**Cmd+V** on macOS), or click the picture button next to the crop button. Attached images show as thumbnails (the × removes one) and are sent with your next question, up to 8 at a time. They stay part of the conversation for follow-up questions. Use a model that supports images; if it doesn't, the error is shown and your images go back to the text box.
+- **Images:** click the crop button (left, under the text box), then drag a box over a figure, table or equation, on the PDF or anywhere in the Zotero window (Esc cancels). Zoom the PDF in first for a sharper image. You can also copy an image (a screenshot tool, a browser, or Zotero's "Copy Image") and press **Ctrl+V** in the text box (**Cmd+V** on macOS). Attached images show as thumbnails (the × removes one) and are sent with your next question, up to 8 at a time. They stay part of the conversation for follow-up questions. Use a model that supports images; if it doesn't, the error is shown and your images go back to the text box.
 - Under each answer: copy it as Markdown, or save the question and answer as a child note of the item. The note button at the top saves the whole chat. If a question fails, **Retry** asks it again.
 - **Maths:** LaTeX in answers is shown as formatted equations: `\( … \)` and `$ … $` inline, and `\[ … \]`, `$$ … $$` and `\begin{align}` (also `equation`, `gather`, `alignat`) as displayed equations. Prices such as "$5 and $10" stay text. A formula that isn't valid LaTeX is shown as written, underlined; hover over it to see why. Wide equations scroll sideways. Selecting and copying text gives each formula as its LaTeX (`$…$`). Saved notes keep the equations, and Zotero's note editor shows them formatted.
 - **Chat history:** each item keeps its chats. The title at the top of the chat (with the clock icon) opens the list of earlier chats about the item; click one to continue it, or use the bin icon to delete it (click twice). **+** starts a new chat and keeps the current one in the list. When you come back to an item, even after restarting Zotero, its last chat is shown again. The library and the PDF reader share the same chats.
@@ -86,6 +86,7 @@ tests/
   unit.test.js       Node tests: stream parsing, API clients, chat flow, history, Markdown, maths
   run_integration.sh end-to-end test in a throwaway Zotero profile
   harness/           test plugin that drives the UI during the end-to-end test
+  reinstall/, upgrade/  test plugins for installing a new build over a running old one
   mock_server.py     fake Claude/OpenAI API used by the end-to-end test
   make_test_pdf.py
 ```
@@ -95,9 +96,10 @@ Run the tests:
 ```sh
 cd tests && npm install && npm test      # unit tests
 tests/run_integration.sh                 # end-to-end, headless; never touches your real library
-XPI=build/zotero-ai-chat-1.3.1.xpi tests/run_integration.sh   # test the packaged file
+XPI=build/zotero-ai-chat-1.3.3.xpi tests/run_integration.sh   # test the packaged file
 DARK=1 tests/run_integration.sh          # same, in dark mode (check the screenshots)
 tests/run_reinstall_test.sh              # install over v1.0.0 without restarting; new styles and maths fonts must apply
+tests/run_upgrade_test.sh                # install over 1.3.1 with saved chats, AI Chat at the top and a PDF tab open; then restart
 HEADLESS=0 REAL_CLIPBOARD=1 tests/run_integration.sh   # Wayland: also paste a real clipboard image (briefly replaces your clipboard)
 ```
 

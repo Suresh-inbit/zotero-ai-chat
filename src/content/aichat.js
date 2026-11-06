@@ -118,6 +118,11 @@ var AIChat = {
 			}
 		}, ["item"], "zotero-ai-chat");
 
+		// Zotero only replaces a plugin's sections in an open pane when that pane renders again,
+		// so after an update an open PDF tab would keep the old copy's section, which the old
+		// copy emptied as it stopped, and Zotero would keep it instead of adding ours
+		this.removeSectionElements(this.id + "-chat");
+
 		this.paneID = Zotero.ItemPaneManager.registerSection({
 			paneID: "chat",
 			pluginID: this.id,
@@ -135,16 +140,16 @@ var AIChat = {
 				setEnabled(this.isSupportedItem(item));
 				return true;
 			},
-			onRender: ({ body, doc, item }) => {
-				this.ensureStyle(doc);
-				let view = this.views.get(body);
-				if (!view) {
-					view = new AIChatView(this, body, doc);
-					this.views.set(body, view);
-				}
-				if (this.isSupportedItem(item)) {
-					view.show(item);
-				}
+			onRender: ({ body, doc, item }) => this.renderSection(body, doc, item),
+			// Zotero doesn't always render a section after creating it. A section added to panes
+			// that are already open (when the plugin starts or is updated) waits for another item
+			// to be shown, which never happens in an open PDF tab. And to put the sections in the
+			// saved order (e.g. AI Chat moved to the top), Zotero takes the section out of the page
+			// and puts it back, which destroys the chat (onDestroy) and leaves a new, empty body.
+			// Either way AI Chat would stay empty, so draw it now if the pane shows an item.
+			onInit: ({ body, doc, item }) => {
+				item ||= body.closest("item-details")?.item;
+				if (item && this.isSupportedItem(item)) this.renderSection(body, doc, item);
 			},
 			onDestroy: ({ body }) => {
 				let view = this.views.get(body);
@@ -209,6 +214,8 @@ var AIChat = {
 		AIChatMath.reset();
 		if (this.paneID) {
 			Zotero.ItemPaneManager.unregisterSection(this.paneID);
+			// And take it out of open panes now rather than when each next renders (see startup)
+			this.removeSectionElements(this.paneID);
 			this.paneID = null;
 		}
 		if (this.prefPaneID) {
@@ -248,6 +255,28 @@ var AIChat = {
 		style.id = this.STYLE_ID;
 		style.textContent = this.cssText;
 		doc.documentElement.appendChild(style);
+	},
+
+	// Zotero names a section CSS.escape(pluginID + "-" + key), e.g. "zotero-ai-chat\\@suresh-inbit-chat"
+	removeSectionElements(paneID) {
+		let unescape = (id) => String(id).replace(/\\(.)/g, "$1");
+		for (let win of Zotero.getMainWindows()) {
+			for (let elem of win.document.querySelectorAll("item-pane-custom-section")) {
+				if (unescape(elem.dataset.pane) === unescape(paneID)) elem.remove();
+			}
+		}
+	},
+
+	renderSection(body, doc, item) {
+		this.ensureStyle(doc);
+		let view = this.views.get(body);
+		if (!view) {
+			view = new AIChatView(this, body, doc);
+			this.views.set(body, view);
+		}
+		if (this.isSupportedItem(item)) {
+			view.show(item);
+		}
 	},
 
 	isSupportedItem(item) {
@@ -2354,8 +2383,20 @@ var AIChatView = class {
 		this.noteText = "";
 		this.noteIsError = false;
 		this.flashTimers = new WeakMap();
+		this.scroller = null;
+		this.resizeObserver = null;
 		this.listener = () => this.update();
 		this.build();
+	}
+
+	// The chat is never shorter than this, even in a small window
+	get MIN_HEIGHT() {
+		return 320;
+	}
+
+	// Space left under the chat, so its bottom edge doesn't touch the pane's
+	get BOTTOM_GAP() {
+		return 8;
 	}
 
 	el(tag, className, text) {
@@ -2431,7 +2472,7 @@ var AIChatView = class {
 	}
 
 	build() {
-		let root = this.el("div", "aichat-root");
+		let root = this.root = this.el("div", "aichat-root");
 
 		let header = this.el("div", "aichat-header");
 		this.historyButton = this.el("button", "aichat-history-toggle");
@@ -2475,11 +2516,9 @@ var AIChatView = class {
 		let bar = this.el("div", "aichat-composer-bar");
 		let pasteKey = Zotero.isMac ? "Cmd+V" : "Ctrl+V";
 		this.cropButton = this.iconButton("crop",
-			"Crop a figure, table or equation from the screen (zoom in first for a sharper image)",
+			"Crop a figure, table or equation from the screen (zoom in first for a sharper image). "
+				+ `To attach a screenshot, paste it into the text box with ${pasteKey}.`,
 			"aichat-crop", () => this.cropFromScreen());
-		this.pasteButton = this.iconButton("image",
-			`Paste an image from the clipboard (or press ${pasteKey} in the text box)`,
-			"aichat-paste", () => this.pasteClipboardImage());
 		this.modelSelect = this.el("select", "aichat-model-select");
 		this.modelSelect.title = "Model for new questions";
 		this.modelSelect.addEventListener("change", () => this.chooseModel());
@@ -2489,7 +2528,7 @@ var AIChatView = class {
 		});
 		let modelWrap = this.el("span", "aichat-model-wrap");
 		modelWrap.append(this.modelSelect, this.icon("chevron"));
-		bar.append(this.cropButton, this.pasteButton, modelWrap, this.sendButton);
+		bar.append(this.cropButton, modelWrap, this.sendButton);
 		composer.append(this.tray, this.input, bar);
 		// A click on the composer's empty space goes to the text box
 		composer.addEventListener("mousedown", (event) => {
@@ -2526,10 +2565,56 @@ var AIChatView = class {
 		this.toggleHistory(false);
 		this.renderAll();
 		this.autoSize();
+		this.fitToPane();
 		this.plugin.restoreChat(this.conv);
 	}
 
+	/**
+	 * Makes the chat as tall as the item pane's visible area, so with the chat scrolled into
+	 * view it covers the whole pane: the messages scroll inside it and the text box sits at
+	 * the bottom. Follows the pane as it's resized, and as the section is expanded. Outside
+	 * Zotero's usual item pane the chat keeps its natural height.
+	 */
+	fitToPane() {
+		let scroller = this.root.closest(".zotero-view-item");
+		if (scroller === this.scroller) {
+			this.updateHeight();
+			return;
+		}
+		this.resizeObserver?.disconnect();
+		this.scroller = scroller;
+		if (!scroller) {
+			this.root.classList.remove("aichat-fit");
+			this.root.style.height = "";
+			return;
+		}
+		this.resizeObserver = new this.win.ResizeObserver(() => this.updateHeight());
+		this.resizeObserver.observe(scroller);
+		// Also when the section is expanded (it has no size while collapsed)
+		this.resizeObserver.observe(this.body);
+		this.updateHeight();
+	}
+
+	updateHeight() {
+		let scroller = this.scroller;
+		if (!scroller || !this.root.isConnected || !this.root.getClientRects().length) return;
+		// The section's title row is above the chat
+		let section = this.root.closest("collapsible-section") || this.body;
+		let above = this.root.getBoundingClientRect().top - section.getBoundingClientRect().top;
+		let height = Math.max(this.MIN_HEIGHT, Math.floor(scroller.clientHeight - above - this.BOTTOM_GAP));
+		if (this.root.style.height !== height + "px" || !this.root.classList.contains("aichat-fit")) {
+			// Keep showing the latest message if it was in view
+			let stick = this.isNearBottom();
+			this.root.style.height = height + "px";
+			this.root.classList.add("aichat-fit");
+			if (stick) this.scrollToBottom();
+		}
+	}
+
 	destroy() {
+		this.resizeObserver?.disconnect();
+		this.resizeObserver = null;
+		this.scroller = null;
 		if (this.conv) this.conv.listeners.delete(this.listener);
 		this.win.clearTimeout(this.noteTimer);
 		this.conv = null;
@@ -3070,7 +3155,8 @@ var AIChatView = class {
 		box.append(
 			this.el("div", "aichat-empty-title", "Ask anything about this item"),
 			this.el("div", "aichat-empty-sub",
-				"Answers use its full text, metadata and your annotations. Crop or paste a figure to ask about it.")
+				"Answers use its full text, metadata and your annotations. To ask about a figure, crop it, "
+					+ `or paste a screenshot with ${Zotero.isMac ? "Cmd+V" : "Ctrl+V"}.`)
 		);
 		let chips = this.el("div", "aichat-suggestions");
 		for (let suggestion of this.plugin.SUGGESTIONS) {

@@ -1,0 +1,1 @@
+{"manifest_version":2,"name":"upgrade test","version":"1.0","applications":{"zotero":{"id":"upgrade-test@test.local","update_url":"https://localhost/u.json","strict_min_version":"7.0","strict_max_version":"10.*"}}}
