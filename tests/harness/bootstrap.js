@@ -89,9 +89,27 @@ function checkLayout(win, details, root, label) {
 	check(`layout fits (${label})`, chat.width > 150 && chat.right <= pane.right + 1 && widest <= pane.right + 1,
 		`pane ${Math.round(pane.left)}-${Math.round(pane.right)}, chat ${Math.round(chat.left)}-${Math.round(chat.right)}, widest child right ${Math.round(widest)}`);
 	let buttons = [...root.querySelectorAll(".aichat-header button, .aichat-composer-bar > *")];
-	check(`header and composer controls visible (${label})`, buttons.length === 8
+	check(`header and composer controls visible (${label})`, buttons.length === 7
 		&& buttons.every((b) => b.getBoundingClientRect().right <= pane.right + 1 && b.getBoundingClientRect().width > 0),
 		buttons.map((b) => `${b.className.split(" ").pop()}:${Math.round(b.getBoundingClientRect().right)}`).join(" "));
+}
+
+// With the chat scrolled into view, it covers the item pane down to its bottom edge: the
+// section's title at the top, the text box at the bottom, the messages scrolling between
+async function checkFillsPane(details, paneID, root, label) {
+	await details.scrollToPane(paneID, "instant");
+	await sleep(400);
+	let scroller = root.closest(".zotero-view-item");
+	let pane = scroller.getBoundingClientRect();
+	let section = root.closest("collapsible-section").getBoundingClientRect();
+	let chat = root.getBoundingClientRect();
+	let composer = root.querySelector(".aichat-composer").getBoundingClientRect();
+	let gap = pane.bottom - chat.bottom;
+	check(`chat fills the pane to the bottom (${label})`, root.classList.contains("aichat-fit")
+		&& Math.abs(section.top - pane.top) <= 2 && gap >= 0 && gap <= 16 && composer.bottom <= pane.bottom,
+	`pane ${Math.round(pane.top)}-${Math.round(pane.bottom)}, section top ${Math.round(section.top)}, `
+		+ `chat ${Math.round(chat.top)}-${Math.round(chat.bottom)}, composer bottom ${Math.round(composer.bottom)}`);
+	return { pane, chat };
 }
 
 async function makePNGFile(win, width, height, color, name) {
@@ -269,6 +287,13 @@ async function run() {
 		check("sidenav tooltip is localized", sidenavButton?.getAttribute("tooltiptext") === "AI Chat", sidenavButton?.getAttribute("tooltiptext"));
 		check("suggestion chips shown", root.querySelectorAll(".aichat-chip").length === 4);
 		checkLayout(win, details, root, "empty chat");
+		await checkFillsPane(details, AIChat.paneID, root, "library, empty chat");
+		let empty = root.querySelector(".aichat-empty").getBoundingClientRect();
+		let messages = root.querySelector(".aichat-messages").getBoundingClientRect();
+		check("suggestions sit in the middle of the empty chat",
+			Math.abs((empty.top + empty.bottom) / 2 - (messages.top + messages.bottom) / 2) <= 4,
+			`suggestions ${Math.round(empty.top)}-${Math.round(empty.bottom)} in ${Math.round(messages.top)}-${Math.round(messages.bottom)}`);
+		check("no paste-image button (Ctrl+V pastes)", !root.querySelector(".aichat-paste"));
 		conv = AIChat.getConversation(item);
 		await screenshot(win, "01-library-empty");
 	});
@@ -290,6 +315,17 @@ async function run() {
 		let bubbleColor = win.getComputedStyle(md).backgroundColor;
 		check("link text is visible (not the background color)", linkColor !== bubbleColor && linkColor !== "rgb(255, 255, 255)", `${linkColor} on ${bubbleColor}`);
 		checkLayout(win, details, root, "library pane after a long answer");
+		let { chat: before } = await checkFillsPane(details, AIChat.paneID, root, "library, long answer");
+		check("scrolling past the chat's end doesn't scroll the pane",
+			win.getComputedStyle(root.querySelector(".aichat-messages")).overscrollBehaviorY === "contain");
+		win.resizeTo(1500, 750);
+		await waitFor(() => win.innerHeight < 800, 5000, "smaller window").catch(() => {});
+		let { chat: smaller } = await checkFillsPane(details, AIChat.paneID, root, "library, smaller window");
+		check("the chat follows the window's height", before.height - smaller.height >= 150,
+			`${Math.round(before.height)} -> ${Math.round(smaller.height)}`);
+		win.resizeTo(1500, 950);
+		await waitFor(() => win.innerHeight > 850, 5000, "window restored").catch(() => {});
+		await checkFillsPane(details, AIChat.paneID, root, "library, window restored");
 		check("thinking text is not shown", !root.textContent.includes("SECRET-THOUGHTS"));
 		let contextText = root.querySelector(".aichat-context").textContent;
 		check("context label names the PDF and annotation", contextText.includes(".pdf") && contextText.includes("1 annotation"), contextText);
@@ -323,6 +359,12 @@ async function run() {
 			&& last.body.messages[2].content === "Follow-up question", JSON.stringify(last.body.messages).slice(0, 300));
 		check("system prompt identical across turns (cacheable)", JSON.stringify(first.body.system) === JSON.stringify(last.body.system));
 		check("two answers rendered", root.querySelectorAll(".aichat-assistant").length === 2);
+		await checkFillsPane(details, AIChat.paneID, root, "library, two answers");
+		let messagesEl = root.querySelector(".aichat-messages");
+		check("long answers scroll inside the chat, showing the latest", messagesEl.scrollHeight > messagesEl.clientHeight + 20
+			&& Math.abs(messagesEl.scrollTop + messagesEl.clientHeight - messagesEl.scrollHeight) <= 2,
+		`${messagesEl.scrollHeight} in ${messagesEl.clientHeight}, scrolled to ${messagesEl.scrollTop}`);
+		await screenshot(win, "03b-library-two-answers");
 	});
 
 	await step("copy and save as note", async () => {
@@ -441,6 +483,7 @@ async function run() {
 		check("reader context uses the open PDF", r.body.system[1].text.includes("QUANTUM-BANANA-42")
 			&& r.body.system[1].text.includes("Attachment: "), r.body.system[1].text.slice(0, 400));
 		checkLayout(win, ctxDetails, readerRoot, "reader side pane");
+		await checkFillsPane(ctxDetails, AIChat.paneID, readerRoot, "reader side pane");
 		await sleep(1500);
 		await screenshot(win, "04-reader");
 		win.Zotero_Tabs.select("zotero-pane");
@@ -655,13 +698,6 @@ async function run() {
 		input.dispatchEvent(textKey);
 		check("Ctrl+V with text on the clipboard pastes normally", !textKey.defaultPrevented);
 
-		// Paste image button with no image on the clipboard explains why nothing happened
-		let pasteBtn = imgRoot.querySelector(".aichat-paste");
-		pasteBtn.click();
-		await sleep(300);
-		check("Paste image with no image on the clipboard says so", imgRoot.querySelector(".aichat-context").textContent.includes("no image on the clipboard"),
-			imgRoot.querySelector(".aichat-context").textContent);
-
 		// A real image on the system clipboard. Headless sessions can only hold text there,
 		// so these checks run only in a session with a real clipboard (HEADLESS=0).
 		let realImage = await makePNGFile(win, 90, 70, "#ccaa33", "real.png");
@@ -687,9 +723,6 @@ async function run() {
 			await waitFor(() => conv.pendingImages.length === before + 1, 10000, "Ctrl+V image").catch(() => {});
 			check("Ctrl+V attaches the clipboard image", conv.pendingImages.length === before + 1 && conv.pendingImages[before].width === 90,
 				conv.pendingImages[before] ? `${conv.pendingImages[before].width}x${conv.pendingImages[before].height}` : "nothing attached");
-			pasteBtn.click();
-			await waitFor(() => conv.pendingImages.length === before + 2, 10000, "Paste image button").catch(() => {});
-			check("Paste image button attaches the clipboard image", conv.pendingImages.length === before + 2);
 			conv.pendingImages = conv.pendingImages.slice(0, before);
 			AIChat.notify(conv);
 		}
@@ -1066,6 +1099,81 @@ async function run() {
 		check("Zotero's note editor draws the saved maths", typeof rendered === "number", rendered);
 		await sleep(500);
 		await screenshot(win, "13-maths-note");
+	});
+
+	await step("chat moved to the top of the item pane", async () => {
+		// As when you move AI Chat up in the side bar: Zotero saves the order and moves the
+		// sections' elements, which takes ours out of the page and puts it back
+		let plugin = Zotero.AIChat;
+		let originalOrder = Zotero.Prefs.get("sidenav.order") || "";
+		Zotero.Prefs.set("sidenav.order", [plugin.paneID, "info", "abstract", "attachments", "notes", "note-info",
+			"attachment-info", "attachment-annotations", "libraries-collections", "tags", "related"].join(","));
+		await sleep(500);
+		let scroller = details.querySelector("#zotero-view-item");
+		let chatShown = async (container, label, expected) => {
+			let section = await waitFor(() => findSection(container, plugin.paneID), 10000, "chat section").catch(() => null);
+			let root = await waitFor(() => section?.querySelector(".aichat-root"), 5000, "chat UI").catch(() => null);
+			let conv = root && plugin.conversations.get(container === details ? item.id : item.id);
+			if (root && expected) {
+				await waitFor(() => root.querySelectorAll(".aichat-msg").length === expected, 5000, "messages").catch(() => {});
+			}
+			check(`chat shown with AI Chat at the top (${label})`, !!root
+				&& (!expected || root.querySelectorAll(".aichat-msg").length === expected),
+			root ? `${root.querySelectorAll(".aichat-msg").length} messages` : "section is empty");
+			return root;
+		};
+
+		await win.ZoteroPane.selectItem(item.id);
+		let topRoot = await chatShown(details, "after moving it");
+		check("AI Chat is the first section", scroller.firstElementChild?.dataset.pane === plugin.paneID,
+			scroller.firstElementChild?.dataset.pane);
+		let topConv = plugin.getConversation(item);
+		if (topRoot) await ask(topRoot, topConv, "Question with the chat at the top", topConv.messages.length + 2);
+		let count = topConv.messages.length;
+		await win.ZoteroPane.selectItem(item2.id);
+		await sleep(300);
+		await win.ZoteroPane.selectItem(item.id);
+		await chatShown(details, "switching items", count);
+
+		// A new reader tab gets a new side pane, whose sections are put in order once added
+		for (let tab of win.Zotero_Tabs._tabs.filter((t) => t.type === "reader")) win.Zotero_Tabs.close(tab.id);
+		await sleep(500);
+		let reader = await Zotero.Reader.open(att.id);
+		await waitFor(() => win.Zotero_Tabs.selectedType === "reader", 20000, "reader tab");
+		if (win.ZoteroContextPane.collapsed) win.ZoteroContextPane.togglePane();
+		let ctxDetails = await waitFor(() => win.document.getElementById(reader.tabID + "-context"), 20000, "reader item pane");
+		await sleep(1000);
+		await chatShown(ctxDetails, "new reader tab", count);
+		await screenshot(win, "14-chat-at-top-reader");
+		win.Zotero_Tabs.select("zotero-pane");
+		await sleep(300);
+
+		// Restarting the plugin (as an update does) adds the section again
+		const { AddonManager } = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+		let addon = await AddonManager.getAddonByID("zotero-ai-chat@suresh-inbit");
+		await addon.disable();
+		await waitFor(() => !Zotero.AIChat, 10000, "plugin shut down");
+		await addon.enable();
+		plugin = await waitFor(() => Zotero.AIChat, 15000, "plugin restarted");
+		await sleep(1000);
+		await win.ZoteroPane.selectItem(item.id);
+		await sleep(500);
+		await chatShown(details, "after the plugin restarts, its saved chat comes back", count);
+		await win.ZoteroPane.selectItem(item2.id);
+		await sleep(300);
+		await win.ZoteroPane.selectItem(item.id);
+		await chatShown(details, "after restarting and switching items", count);
+		await screenshot(win, "15-chat-at-top-library");
+		// The PDF tab stayed open while the plugin restarted
+		win.Zotero_Tabs.select(reader.tabID);
+		await waitFor(() => win.Zotero_Tabs.selectedType === "reader", 10000, "reader tab").catch(() => {});
+		await sleep(1000);
+		let readerRoot = await chatShown(ctxDetails, "PDF tab open while the plugin restarted", count);
+		check("that PDF tab's chat is drawn by the restarted plugin",
+			!!readerRoot && [...plugin.views.keys()].includes(readerRoot.parentElement));
+		win.Zotero_Tabs.select("zotero-pane");
+		await sleep(300);
+		Zotero.Prefs.set("sidenav.order", originalOrder);
 	});
 }
 

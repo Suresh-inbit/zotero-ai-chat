@@ -5,7 +5,7 @@
 # Runs in a throwaway profile; your real library is never opened.
 #
 # Usage: tests/run_reinstall_test.sh [WORKDIR]
-#   OLD_REF     git ref of the build installed first (default v1.0.0)
+#   OLD_REF     git ref of the build installed first (default v1.0.0; dcf7874 is 1.3.1, which saves chats)
 #   ZOTERO_BIN  path to the zotero launcher (default /opt/zotero/zotero)
 set -euo pipefail
 
@@ -26,6 +26,7 @@ git -C "$repo" archive "${OLD_REF:-v1.0.0}" src | tar -x -C "$work/old"
 "$repo/build.sh" > /dev/null
 version=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$repo/src/manifest.json")
 cp "$repo/build/zotero-ai-chat-$version.xpi" "$work/new.xpi"
+python3 "$here/make_test_pdf.py" "$work/paper.pdf"
 
 cp "$work/old.xpi" "$work/profile/extensions/zotero-ai-chat@suresh-inbit.xpi"
 printf '%s' "$here/reinstall" > "$work/profile/extensions/reinstall-test@test.local"
@@ -38,6 +39,8 @@ user_pref("app.update.enabled", false);
 user_pref("extensions.zotero.httpServer.enabled", false);
 user_pref("extensions.reinstalltest.newXpi", "$work/new.xpi");
 user_pref("extensions.reinstalltest.out", "$work/result.json");
+user_pref("extensions.reinstalltest.pdf", "$work/paper.pdf");
+user_pref("extensions.reinstalltest.newVersion", "$version");
 PREFS
 
 echo "Running Zotero (work dir: $work) ..."
@@ -61,6 +64,10 @@ checks = [
     ("crop overlay covers the whole window",
      o["left"] <= 1 and o["top"] <= 1 and o["width"] >= w["w"] - 1 and o["height"] >= w["h"] - 1),
     ("maths renders after the upgrade", r.get("formulas") == 2),
+    ("a PDF tab open through the upgrade shows the new build's chat (AI Chat moved to the top)",
+     r.get("readerChat") and r.get("readerFirst")),
+    ("... with its saved chat" if r.get("savedChat") else "... (old build has no chat history)",
+     r.get("readerMessages") == 2 if r.get("savedChat") else True),
     ("KaTeX fonts load from the new build",
      r.get("katexFontsLoaded", 0) >= 2 and r.get("katexFontsFailed") == 0),
 ]

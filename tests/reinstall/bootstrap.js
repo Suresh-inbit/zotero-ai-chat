@@ -11,17 +11,62 @@ async function run() {
 	let win = await waitFor(() => Zotero.getMainWindow()?.ZoteroPane?.itemsView && Zotero.getMainWindow());
 	win.resizeTo(1400, 900);
 	await sleep(1500);
-	out.oldVersionLoaded = !!Zotero.AIChat && typeof Zotero.AIChat.prepareImage !== "function";
+	let old = Zotero.AIChat;
+	out.oldVersion = old?.version;
+	out.oldVersionLoaded = !!old && old.version !== Zotero.Prefs.get("extensions.reinstalltest.newVersion", true);
+	// AI Chat moved to the top of the item pane, as in the side bar
+	Zotero.Prefs.set("sidenav.order", [old.paneID, "info", "abstract", "attachments", "notes", "note-info", "attachment-info",
+		"attachment-annotations", "libraries-collections", "tags", "related"].join(","));
 	let item = new Zotero.Item("journalArticle"); item.setField("title", "Repro"); await item.saveTx();
+	let att = await Zotero.Attachments.importFromFile({ file: Zotero.Prefs.get("extensions.reinstalltest.pdf", true), parentItemID: item.id });
+	// A saved chat, in builds that have chat history
+	if (typeof old.persistChat === "function") {
+		let conv = old.getConversation(item);
+		conv.messages.push({ role: "user", text: "Saved question", images: [] },
+			{ role: "assistant", text: "Saved answer", status: "done", model: "m" });
+		conv.restoring = false;
+		await old.persistChat(conv);
+		out.savedChat = true;
+	}
 	await win.ZoteroPane.selectItem(item.id);
 	await sleep(1000);
+	// A PDF tab stays open through the update
+	let reader = await Zotero.Reader.open(att.id);
+	await waitFor(() => win.Zotero_Tabs.selectedType === "reader");
+	if (win.ZoteroContextPane.collapsed) win.ZoteroContextPane.togglePane();
+	await waitFor(() => win.document.getElementById(reader.tabID + "-context"));
+	await sleep(1500);
+	win.Zotero_Tabs.select("zotero-pane");
+	await sleep(500);
 	// Install the new build over the running old one, like Tools > Plugins > Install Plugin From File
 	const { AddonManager } = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
 	let install = await AddonManager.getInstallForFile(Zotero.File.pathToFile(Zotero.Prefs.get("extensions.reinstalltest.newXpi", true)));
 	await install.install();
-	let plugin = await waitFor(() => Zotero.AIChat && typeof Zotero.AIChat.prepareImage === "function" && Zotero.AIChat);
+	let plugin = await waitFor(() => Zotero.AIChat && Zotero.AIChat !== old && Zotero.AIChat);
 	out.newVersionLoaded = true;
 	await sleep(1000);
+
+	// The PDF tab that was open through the update shows the chat, with its saved history.
+	// Browse the library first, then look at the tab shortly after switching to it, as you
+	// would; given long enough, a later refresh in Zotero can hide the problem
+	let other = new Zotero.Item("book"); other.setField("title", "Other"); await other.saveTx();
+	await win.ZoteroPane.selectItem(other.id);
+	await sleep(500);
+	await win.ZoteroPane.selectItem(item.id);
+	await sleep(500);
+	win.Zotero_Tabs.select(reader.tabID);
+	await waitFor(() => win.Zotero_Tabs.selectedType === "reader");
+	await sleep(1500);
+	let ctx = win.document.getElementById(reader.tabID + "-context");
+	let readerRoot = [...ctx.querySelectorAll("item-pane-custom-section")]
+		.find((e) => e.dataset.pane === plugin.paneID)?.querySelector(".aichat-root");
+	// Drawn by the new build: an old build's leftover section can still draw a chat with the
+	// old, stopped copy's code, or (as reported) stay empty
+	out.readerChat = !!readerRoot && [...plugin.views.keys()].includes(readerRoot.parentElement);
+	out.readerMessages = readerRoot ? readerRoot.querySelectorAll(".aichat-msg").length : null;
+	out.readerFirst = ctx.querySelector("#zotero-view-item")?.firstElementChild?.dataset.pane === plugin.paneID;
+	win.Zotero_Tabs.select("zotero-pane");
+	await sleep(500);
 	let details = win.document.getElementById("zotero-item-details");
 	await win.ZoteroPane.selectItem(item.id);
 	let section = await waitFor(() => [...details.querySelectorAll("item-pane-custom-section")].find((e) => e.dataset.pane === plugin.paneID));
@@ -47,8 +92,10 @@ async function run() {
 	conv.messages.push({ role: "user", text: "q" },
 		{ role: "assistant", text: "Inline \\(x^2\\) and \\[\\frac{a}{b}\\]", status: "done" });
 	[...plugin.views.values()].forEach((view) => view.renderAll());
-	let answer = await waitFor(() => root.querySelector(".aichat-answer"));
-	out.formulas = answer.querySelectorAll(".katex").length;
+	// (The last answer: with chat history the saved one comes first)
+	let answer = await waitFor(() => [...root.querySelectorAll(".aichat-answer")].pop()?.querySelector(".katex")
+		&& [...root.querySelectorAll(".aichat-answer")].pop(), 10000).catch(() => null);
+	out.formulas = answer ? answer.querySelectorAll(".katex").length : 0;
 	await win.document.fonts.ready;
 	let faces = [...win.document.fonts].filter((f) => f.family.replace(/"/g, "").startsWith("KaTeX_"));
 	out.katexFontsLoaded = faces.filter((f) => f.status === "loaded").length;

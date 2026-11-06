@@ -23,6 +23,17 @@
               "strict_max_version": "10.*"
             }
           }
+        },
+        {
+          "version": "1.3.3",
+          "update_link": "https://github.com/Suresh-inbit/zotero-ai-chat/releases/download/v1.3.3/zotero-ai-chat-1.3.3.xpi",
+          "update_hash": "sha256:a6d1fd22516dafa643234096220285baded5c2e65e859c127c01c2ec54dd5f7b",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "10.0",
+              "strict_max_version": "10.*"
+            }
+          }
         }
       ]
     }
